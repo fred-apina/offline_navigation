@@ -104,6 +104,16 @@ android {
         minSdk = 21
     }
 
+    lint {
+        // AGP 8.7's bundled lint crashes on Kotlin 2.1 code ("Found class
+        // KaCallableMemberCall, but interface was expected") while running the
+        // lifecycle NonNullableMutableLiveDataDetector over this module during
+        // consumers' release builds. Disable that detector here; all other lint
+        // checks still run.
+        disable("NullSafeMutableLiveData")
+        checkReleaseBuilds = false
+    }
+
     dependencies {
         // Prebuilt Organic Maps engine (native core + Java SDK + assets).
         implementation("io.github.fred-apina:organicmaps-sdk:0.1.0")

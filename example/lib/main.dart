@@ -31,9 +31,9 @@ const _trips = <_Trip>[
     NavPoint(latitude: 47.3763, longitude: 8.5476, name: 'ETH Zürich'),
   ),
   _Trip(
-    'Arusha → Usa River',
-    NavPoint(latitude: -3.3869, longitude: 36.6830, name: 'Arusha'),
-    NavPoint(latitude: -3.3689, longitude: 36.8286, name: 'Usa River'),
+    'Dodoma City → University of Dodoma',
+    NavPoint(latitude: -6.1722, longitude: 35.7395, name: 'Dodoma City Centre'),
+    NavPoint(latitude: -6.1841, longitude: 35.9297, name: 'University of Dodoma'),
   ),
 ];
 

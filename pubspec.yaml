@@ -1,7 +1,15 @@
 name: offline_navigation
 description: "Drop-in offline turn-by-turn navigation page for Flutter, powered by the Organic Maps engine. Downloads the required country map automatically and navigates fully offline."
-version: 0.0.1
+version: 0.1.0
 repository: https://github.com/fred-apina/offline_navigation
+issue_tracker: https://github.com/fred-apina/offline_navigation/issues
+
+topics:
+  - navigation
+  - maps
+  - offline
+  - routing
+  - gps
 
 environment:
   sdk: ^3.8.1

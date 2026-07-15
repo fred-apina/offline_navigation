@@ -17,6 +17,8 @@ abstract final class NavChannel {
 
   static Future<void> initialize() => _api.initialize();
 
+  static Future<bool> isInitialized() => _api.isInitialized();
+
   /// Bytes of base world maps (World.mwm/WorldCoasts.mwm) still missing.
   /// 0 means they are present.
   static Future<int> getBaseMapBytes() => _api.getBaseMapBytes();

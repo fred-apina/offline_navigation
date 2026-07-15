@@ -9,8 +9,8 @@ automatically downloading the offline map of the country the route is in:
 ```dart
 final result = await Navigator.push(context, MaterialPageRoute(
   builder: (_) => OfflineNavigationPage(
-    start: NavPoint(latitude: -3.3869, longitude: 36.6830, name: 'Arusha'),
-    destination: NavPoint(latitude: -3.3689, longitude: 36.8286, name: 'Usa River'),
+    start: NavPoint(latitude: -6.1722, longitude: 35.7395, name: 'Dodoma City'),
+    destination: NavPoint(latitude: -6.1841, longitude: 35.9297, name: 'University of Dodoma'),
     travelMode: TravelMode.drive,
     options: NavOptions(voiceGuidance: true),
   ),
@@ -51,6 +51,14 @@ fully offline.
    ```
 
 That's it. Asset packaging (`noCompress`) is configured automatically.
+
+## Permissions
+
+The plugin declares the location permissions it needs (they merge into your
+app's manifest automatically) and requests location access at runtime when
+turn-by-turn guidance starts. No manifest edits are required on your side.
+Simulated guidance (`NavOptions(simulateRoute: true)`) needs no location access,
+which is handy for demos and tests.
 
 ## Platform support
 

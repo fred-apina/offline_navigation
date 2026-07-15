@@ -140,17 +140,29 @@ object NavigationSession {
     armFollowTrigger()
 
     val locationHelper = OmEngine.locationHelper
-    if (simulate) {
-      val junctions = Framework.nativeGetRouteJunctionPoints(SIMULATION_STEP_M)
-      if (junctions == null || junctions.isEmpty()) {
-        disarmFollowTrigger()
-        callback(Result.failure(FlutterError("no_route_points", "Could not get route points for simulation", null)))
-        return
+    try {
+      if (simulate) {
+        val junctions = Framework.nativeGetRouteJunctionPoints(SIMULATION_STEP_M)
+        if (junctions == null || junctions.isEmpty()) {
+          disarmFollowTrigger()
+          callback(Result.failure(FlutterError("no_route_points", "Could not get route points for simulation", null)))
+          return
+        }
+        locationHelper.startNavigationSimulation(junctions)
+        simulationActive = true
+      } else {
+        locationHelper.start()
       }
-      locationHelper.startNavigationSimulation(junctions)
-      simulationActive = true
-    } else {
-      locationHelper.start()
+    } catch (e: Exception) {
+      // e.g. a SecurityException if a required location permission is missing.
+      // Leave no armed listener or half-started provider behind.
+      disarmFollowTrigger()
+      simulationActive = false
+      try {
+        locationHelper.stop()
+      } catch (_: Exception) {}
+      callback(Result.failure(FlutterError("guidance_start_failed", e.message, null)))
+      return
     }
 
     guiding = true

@@ -5,4 +5,8 @@
     <!-- Required for live turn-by-turn guidance (requested at runtime). -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- The engine primes the GPS provider via LocationManager.sendExtraCommand
+         (force_xtra/time_injection) when live guidance starts; without this
+         normal permission that call throws SecurityException. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCATION_EXTRA_COMMANDS" />
 </manifest>
