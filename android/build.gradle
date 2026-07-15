@@ -1,0 +1,127 @@
+group = "io.github.fredapina.offline_navigation"
+version = "1.0-SNAPSHOT"
+
+buildscript {
+    ext.kotlin_version = "2.1.0"
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.7.3")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version")
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+// The prebuilt Organic Maps SDK AAR is resolved from these repositories. They
+// must be visible to the consuming app project (which resolves the runtime
+// classpath), not just to this plugin project — hence rootProject.allprojects.
+rootProject.allprojects {
+    repositories {
+        maven { url = uri("https://fred-apina.github.io/maven-repo/") }
+        mavenLocal()
+    }
+}
+
+// ── Consumer app auto-configuration ─────────────────────────────────────────
+//
+// The Organic Maps engine reads its bundled assets (map styles, fonts, world
+// borders, ...) straight from the APK by file offset, so they must be STORED
+// uncompressed. AAPT compression is decided by the *app* module — a library
+// cannot express this in its AAR — so we add the extensions to the consuming
+// app here. This script runs inside the consumer's Gradle build (Flutter
+// includes every plugin as a subproject), which is what makes this possible.
+// aapt reads noCompress at execution time, so mutating it post-evaluation is
+// effective (unlike variant-shaping options such as desugaring, see below).
+def omNoCompress = ["txt", "bin", "html", "png", "json", "mwm", "ttf", "sdf", "ui", "config", "csv", "spv", "obj"]
+rootProject.allprojects { proj ->
+    proj.plugins.withId("com.android.application") {
+        proj.android.androidResources {
+            noCompress.addAll(omNoCompress)
+        }
+
+        // Core library desugaring cannot be switched on from here (the app's
+        // variants are already computed by the time plugin projects evaluate),
+        // so fail fast with instructions instead of crashing at runtime on
+        // API < 26 devices.
+        proj.tasks.matching { it.name == "preBuild" }.configureEach { preBuildTask ->
+            preBuildTask.doFirst {
+                def minSdk = proj.android.defaultConfig.minSdk ?: 21
+                def desugaringOn = proj.android.compileOptions.coreLibraryDesugaringEnabled
+                if (minSdk < 26 && !desugaringOn) {
+                    throw new org.gradle.api.GradleException(
+                        "offline_navigation: your app's minSdkVersion is ${minSdk}, which requires " +
+                        "core library desugaring for the Organic Maps engine (java.time on API < 26).\n" +
+                        "Add this to android/app/build.gradle(.kts):\n\n" +
+                        "  android {\n" +
+                        "    compileOptions {\n" +
+                        "      isCoreLibraryDesugaringEnabled = true\n" +
+                        "    }\n" +
+                        "  }\n" +
+                        "  dependencies {\n" +
+                        "    coreLibraryDesugaring(\"com.android.tools:desugar_jdk_libs:2.1.5\")\n" +
+                        "  }\n\n" +
+                        "Alternatively raise minSdkVersion to 26."
+                    )
+                }
+            }
+        }
+    }
+}
+
+apply plugin: "com.android.library"
+apply plugin: "kotlin-android"
+
+android {
+    namespace = "io.github.fredapina.offline_navigation"
+
+    compileSdk = 35
+    ndkVersion = "29.0.14206865"
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main.java.srcDirs += "src/main/kotlin"
+        test.java.srcDirs += "src/test/kotlin"
+    }
+
+    defaultConfig {
+        minSdk = 21
+    }
+
+    dependencies {
+        // Prebuilt Organic Maps engine (native core + Java SDK + assets).
+        implementation("io.github.fred-apina:organicmaps-sdk:0.1.0")
+        implementation("androidx.lifecycle:lifecycle-common:2.9.4")
+
+        testImplementation("org.jetbrains.kotlin:kotlin-test")
+        testImplementation("org.mockito:mockito-core:5.0.0")
+    }
+
+    testOptions {
+        unitTests.all {
+            useJUnitPlatform()
+
+            testLogging {
+               events "passed", "skipped", "failed", "standardOut", "standardError"
+               outputs.upToDateWhen {false}
+               showStandardStreams = true
+            }
+        }
+    }
+}
