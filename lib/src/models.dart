@@ -21,14 +21,7 @@ class NavPoint {
 }
 
 /// How the route is traveled.
-enum TravelMode {
-  drive('drive'),
-  walk('walk'),
-  cycle('cycle');
-
-  const TravelMode(this.wireName);
-  final String wireName;
-}
+enum TravelMode { drive, walk, cycle }
 
 /// Optional behavior tweaks for [OfflineNavigationPage].
 @immutable

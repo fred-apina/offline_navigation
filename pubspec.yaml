@@ -10,11 +10,13 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_plugin_android_lifecycle: ^2.0.31
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  pigeon: ^26.1.2
 
 flutter:
   plugin:

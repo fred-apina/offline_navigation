@@ -2,7 +2,6 @@ package io.github.fredapina.offline_navigation
 
 import android.util.Log
 import app.organicmaps.sdk.DownloadResourcesLegacyActivity
-import io.flutter.plugin.common.MethodChannel
 
 /**
  * Downloads the base world maps (World.mwm / WorldCoasts.mwm) on first run.
@@ -21,18 +20,18 @@ object ResourceBootstrap {
 
   private const val TAG = "ResourceBootstrap"
 
-  private var pendingResult: MethodChannel.Result? = null
+  private var pendingCallback: ((Result<Unit>) -> Unit)? = null
   private var totalBytes: Int = 0
 
   /** Bytes still missing (0 = base maps present); negative values are engine errors. */
   fun bytesToDownload(): Int = DownloadResourcesLegacyActivity.nativeGetBytesToDownload()
 
-  fun download(result: MethodChannel.Result) {
-    if (pendingResult != null) {
-      result.error("in_progress", "Base map download already in progress", null)
+  fun download(callback: (Result<Unit>) -> Unit) {
+    if (pendingCallback != null) {
+      callback(Result.failure(FlutterError("in_progress", "Base map download already in progress", null)))
       return
     }
-    pendingResult = result
+    pendingCallback = callback
     totalBytes = bytesToDownload().coerceAtLeast(1)
 
     val listener = object : DownloadResourcesLegacyActivity.Listener {
@@ -62,27 +61,27 @@ object ResourceBootstrap {
   }
 
   fun cancel() {
-    if (pendingResult == null) return
+    if (pendingCallback == null) return
     try {
       DownloadResourcesLegacyActivity.nativeCancelCurrentFile()
     } catch (e: Exception) {
       Log.w(TAG, "cancel failed: ${e.message}")
     }
-    val pending = pendingResult
-    pendingResult = null
-    pending?.error("cancelled", "Base map download cancelled", null)
+    val pending = pendingCallback
+    pendingCallback = null
+    pending?.invoke(Result.failure(FlutterError("cancelled", "Base map download cancelled", null)))
   }
 
   private fun complete(errorCode: Int) {
-    val pending = pendingResult ?: return // cancelled, or a late callback
-    pendingResult = null
+    val pending = pendingCallback ?: return // cancelled, or a late callback
+    pendingCallback = null
     if (errorCode == 0) {
       DownloadEventBus.send(mapOf("countryId" to BASE_ID, "status" to 6, "progress" to 100))
-      pending.success(true)
+      pending(Result.success(Unit))
     } else {
       Log.w(TAG, "Base map download failed: $errorCode")
       DownloadEventBus.send(mapOf("countryId" to BASE_ID, "status" to 4, "progress" to -1))
-      pending.error("base_map_download_failed", describe(errorCode), errorCode)
+      pending(Result.failure(FlutterError("base_map_download_failed", describe(errorCode), errorCode.toLong())))
     }
   }
 

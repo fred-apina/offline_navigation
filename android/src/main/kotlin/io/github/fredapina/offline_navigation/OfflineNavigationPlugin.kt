@@ -12,32 +12,28 @@ import app.organicmaps.sdk.downloader.MapManager
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
-import io.flutter.embedding.engine.plugins.lifecycle.HiddenLifecycleReference
+import io.flutter.embedding.engine.plugins.lifecycle.FlutterLifecycleAdapter
 import io.flutter.plugin.common.EventChannel
-import io.flutter.plugin.common.MethodCall
-import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.PluginRegistry
 
 /**
  * Entry point of the offline_navigation plugin.
  *
- * Registers the map platform view, the engine method channel, and the
- * download/guidance event channels.
+ * Implements the Pigeon-generated [OfflineNavApi] host interface and registers
+ * the map platform view plus the download/guidance event channels.
  */
 class OfflineNavigationPlugin :
   FlutterPlugin,
   ActivityAware,
-  MethodChannel.MethodCallHandler,
+  OfflineNavApi,
   PluginRegistry.RequestPermissionsResultListener {
   companion object {
-    const val ENGINE_CHANNEL = "offline_navigation/engine"
     const val DOWNLOADS_CHANNEL = "offline_navigation/downloads"
     const val GUIDANCE_CHANNEL = "offline_navigation/guidance"
     const val MAP_VIEW_TYPE = "offline_navigation/map_view"
     private const val LOCATION_PERMISSION_REQUEST = 24371
   }
 
-  private lateinit var channel: MethodChannel
   private var downloadsChannel: EventChannel? = null
   private var guidanceChannel: EventChannel? = null
   private var flutterBinding: FlutterPlugin.FlutterPluginBinding? = null
@@ -47,12 +43,11 @@ class OfflineNavigationPlugin :
     private set
 
   private var activity: Activity? = null
-  private var pendingPermissionResult: MethodChannel.Result? = null
+  private var pendingPermissionCallback: ((Result<Boolean>) -> Unit)? = null
 
   override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
     flutterBinding = binding
-    channel = MethodChannel(binding.binaryMessenger, ENGINE_CHANNEL)
-    channel.setMethodCallHandler(this)
+    OfflineNavApi.setUp(binding.binaryMessenger, this)
     downloadsChannel = EventChannel(binding.binaryMessenger, DOWNLOADS_CHANNEL).apply {
       setStreamHandler(DownloadStreamHandler())
     }
@@ -63,128 +58,77 @@ class OfflineNavigationPlugin :
   }
 
   override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-    channel.setMethodCallHandler(null)
+    OfflineNavApi.setUp(binding.binaryMessenger, null)
     downloadsChannel?.setStreamHandler(null)
     guidanceChannel?.setStreamHandler(null)
     flutterBinding = null
   }
 
-  override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
-    when (call.method) {
-      "initialize" -> {
-        val context = flutterBinding?.applicationContext
-        if (context == null) {
-          result.error("no_context", "Plugin is not attached to a Flutter engine", null)
-          return
-        }
-        OmEngine.initialize(
-          context,
-          onReady = { result.success(true) },
-          onError = { e -> result.error("init_failed", e.message, null) },
-        )
-      }
-      "isInitialized" -> result.success(OmEngine.isReady)
+  // ── OfflineNavApi ─────────────────────────────────────────────
 
-      // ── Base world maps (first-run bootstrap) ───────────────
-      "getBaseMapBytes" -> result.success(ResourceBootstrap.bytesToDownload())
-      "downloadBaseMaps" -> ResourceBootstrap.download(result)
-      "cancelBaseMapDownload" -> {
-        ResourceBootstrap.cancel()
-        result.success(true)
-      }
+  override fun initialize(callback: (Result<Unit>) -> Unit) {
+    val context = flutterBinding?.applicationContext
+    if (context == null) {
+      callback(Result.failure(FlutterError("no_context", "Plugin is not attached to a Flutter engine", null)))
+      return
+    }
+    OmEngine.initialize(
+      context,
+      onReady = { callback(Result.success(Unit)) },
+      onError = { e -> callback(Result.failure(FlutterError("init_failed", e.message, null))) },
+    )
+  }
 
-      // ── Location permission ─────────────────────────────────
-      "hasLocationPermission" -> result.success(hasLocationPermission())
-      "requestLocationPermission" -> requestLocationPermission(result)
+  override fun isInitialized(): Boolean = OmEngine.isReady
 
-      // ── Map data ────────────────────────────────────────────
-      "resolveCountry" -> {
-        val lat = call.argument<Double>("lat")
-        val lon = call.argument<Double>("lon")
-        if (lat == null || lon == null) {
-          result.error("bad_args", "lat and lon are required", null)
-          return
-        }
-        result.success(MapManager.nativeFindCountry(lat, lon))
-      }
-      "getCountryStatus" -> {
-        val countryId = call.argument<String>("countryId")
-        if (countryId.isNullOrEmpty()) {
-          result.error("bad_args", "countryId is required", null)
-          return
-        }
-        result.success(MapManager.nativeGetStatus(countryId))
-      }
-      "startDownload" -> {
-        val ids = call.argument<List<String>>("countryIds").orEmpty()
-        if (ids.isEmpty()) {
-          result.error("bad_args", "countryIds is required", null)
-          return
-        }
-        MapManager.startDownload(*ids.toTypedArray())
-        result.success(true)
-      }
-      "cancelDownload" -> {
-        call.argument<List<String>>("countryIds").orEmpty().forEach { MapManager.nativeCancel(it) }
-        result.success(true)
-      }
+  override fun getBaseMapBytes(): Long = ResourceBootstrap.bytesToDownload().toLong()
 
-      // ── Routing ─────────────────────────────────────────────
-      "buildRoute" -> {
-        val startLat = call.argument<Double>("startLat")
-        val startLon = call.argument<Double>("startLon")
-        val destLat = call.argument<Double>("destLat")
-        val destLon = call.argument<Double>("destLon")
-        if (startLat == null || startLon == null || destLat == null || destLon == null) {
-          result.error("bad_args", "startLat/startLon/destLat/destLon are required", null)
-          return
-        }
-        NavigationSession.buildRoute(
-          startLat, startLon, call.argument<String>("startName") ?: "Start",
-          destLat, destLon, call.argument<String>("destName") ?: "Destination",
-          call.argument<String>("travelMode") ?: "drive",
-          result,
-        )
-      }
-      "startGuidance" -> NavigationSession.startGuidance(
-        simulate = call.argument<Boolean>("simulate") ?: false,
-        voice = call.argument<Boolean>("voice") ?: true,
-        result = result,
-      )
-      "stopGuidance" -> {
-        NavigationSession.stopGuidance()
-        result.success(true)
-      }
-      "closeRouting" -> {
-        NavigationSession.closeRouting()
-        result.success(true)
-      }
-      "setViewport" -> {
-        val lat = call.argument<Double>("lat")
-        val lon = call.argument<Double>("lon")
-        val zoom = call.argument<Int>("zoom") ?: 12
-        if (lat == null || lon == null) {
-          result.error("bad_args", "lat and lon are required", null)
-          return
-        }
-        Framework.nativeSetViewportCenter(lat, lon, zoom)
-        result.success(true)
-      }
-      "setKeepScreenOn" -> {
-        val on = call.argument<Boolean>("on") ?: false
-        activity?.window?.let { window ->
-          if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-          else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
-        result.success(true)
-      }
-      else -> result.notImplemented()
+  override fun downloadBaseMaps(callback: (Result<Unit>) -> Unit) = ResourceBootstrap.download(callback)
+
+  override fun cancelBaseMapDownload() = ResourceBootstrap.cancel()
+
+  override fun resolveCountry(latitude: Double, longitude: Double): String? =
+    MapManager.nativeFindCountry(latitude, longitude)
+
+  override fun getCountryStatus(countryId: String): Long =
+    MapManager.nativeGetStatus(countryId).toLong()
+
+  override fun startDownload(countryIds: List<String>) {
+    if (countryIds.isNotEmpty()) MapManager.startDownload(*countryIds.toTypedArray())
+  }
+
+  override fun cancelDownload(countryIds: List<String>) {
+    countryIds.forEach { MapManager.nativeCancel(it) }
+  }
+
+  override fun buildRoute(
+    start: WirePoint,
+    destination: WirePoint,
+    mode: WireTravelMode,
+    callback: (Result<WireRouteBuildResult>) -> Unit,
+  ) = NavigationSession.buildRoute(start, destination, mode, callback)
+
+  override fun startGuidance(simulate: Boolean, voice: Boolean, callback: (Result<Unit>) -> Unit) =
+    NavigationSession.startGuidance(simulate, voice, callback)
+
+  override fun stopGuidance() = NavigationSession.stopGuidance()
+
+  override fun closeRouting() = NavigationSession.closeRouting()
+
+  override fun setViewport(latitude: Double, longitude: Double, zoom: Long) {
+    Framework.nativeSetViewportCenter(latitude, longitude, zoom.toInt())
+  }
+
+  override fun setKeepScreenOn(on: Boolean) {
+    activity?.window?.let { window ->
+      if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+      else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
   }
 
   // ── Location permission ───────────────────────────────────────
 
-  private fun hasLocationPermission(): Boolean {
+  override fun hasLocationPermission(): Boolean {
     val context = flutterBinding?.applicationContext ?: return false
     return ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
       PackageManager.PERMISSION_GRANTED ||
@@ -192,21 +136,21 @@ class OfflineNavigationPlugin :
       PackageManager.PERMISSION_GRANTED
   }
 
-  private fun requestLocationPermission(result: MethodChannel.Result) {
+  override fun requestLocationPermission(callback: (Result<Boolean>) -> Unit) {
     if (hasLocationPermission()) {
-      result.success(true)
+      callback(Result.success(true))
       return
     }
     val currentActivity = activity
     if (currentActivity == null) {
-      result.error("no_activity", "Plugin is not attached to an activity", null)
+      callback(Result.failure(FlutterError("no_activity", "Plugin is not attached to an activity", null)))
       return
     }
-    if (pendingPermissionResult != null) {
-      result.error("in_progress", "A permission request is already in progress", null)
+    if (pendingPermissionCallback != null) {
+      callback(Result.failure(FlutterError("in_progress", "A permission request is already in progress", null)))
       return
     }
-    pendingPermissionResult = result
+    pendingPermissionCallback = callback
     ActivityCompat.requestPermissions(
       currentActivity,
       arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
@@ -221,8 +165,8 @@ class OfflineNavigationPlugin :
   ): Boolean {
     if (requestCode != LOCATION_PERMISSION_REQUEST) return false
     val granted = grantResults.any { it == PackageManager.PERMISSION_GRANTED }
-    pendingPermissionResult?.success(granted)
-    pendingPermissionResult = null
+    pendingPermissionCallback?.invoke(Result.success(granted))
+    pendingPermissionCallback = null
     return true
   }
 
@@ -230,7 +174,7 @@ class OfflineNavigationPlugin :
 
   override fun onAttachedToActivity(binding: ActivityPluginBinding) {
     activity = binding.activity
-    activityLifecycle = (binding.lifecycle as HiddenLifecycleReference).lifecycle
+    activityLifecycle = FlutterLifecycleAdapter.getActivityLifecycle(binding)
     binding.addRequestPermissionsResultListener(this)
   }
 
@@ -241,7 +185,7 @@ class OfflineNavigationPlugin :
 
   override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
     activity = binding.activity
-    activityLifecycle = (binding.lifecycle as HiddenLifecycleReference).lifecycle
+    activityLifecycle = FlutterLifecycleAdapter.getActivityLifecycle(binding)
     binding.addRequestPermissionsResultListener(this)
   }
 

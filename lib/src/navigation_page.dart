@@ -60,6 +60,8 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
   GuidanceUpdate? _guidance;
   StreamSubscription<GuidanceUpdate>? _guidanceSub;
   bool _mapReady = false;
+  Timer? _slowBuildTimer;
+  bool _slowBuild = false;
 
   @override
   void initState() {
@@ -69,6 +71,7 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
 
   @override
   void dispose() {
+    _slowBuildTimer?.cancel();
     _downloadSub?.cancel();
     _guidanceSub?.cancel();
     // Stop any in-flight downloads: leaving them running after the user backs
@@ -214,7 +217,16 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
     setState(() {
       _phase = _Phase.buildingRoute;
       _statusText = 'Building route…';
+      _slowBuild = false;
     });
+    // Route calculation for very large regions can take minutes on first use
+    // (the whole routing graph is loaded from disk). Surface a hint so the
+    // wait doesn't read as a hang.
+    _slowBuildTimer?.cancel();
+    _slowBuildTimer = Timer(const Duration(seconds: 8), () {
+      if (mounted && _phase == _Phase.buildingRoute) setState(() => _slowBuild = true);
+    });
+
     await NavChannel.setViewport(widget.start.latitude, widget.start.longitude, 14);
 
     final result = await NavChannel.buildRoute(
@@ -222,28 +234,36 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
       destination: widget.destination,
       mode: widget.travelMode,
     );
+    _slowBuildTimer?.cancel();
+    if (!mounted) return;
 
-    if (result['ok'] != true) {
-      final missing = (result['missingMaps'] as List?)?.cast<String>() ?? const [];
-      if (missing.isNotEmpty) {
+    if (!result.ok) {
+      if (result.cancelled) return; // the page is closing
+      if (result.missingMaps.isNotEmpty) {
         // The route crosses regions we don't have yet — download them and retry.
         _countriesToDownload
           ..clear()
-          ..addAll(missing);
+          ..addAll(result.missingMaps);
         await _startDownload();
         return;
       }
-      _fail('Could not build a route (error ${result['code']})');
+      _fail('Could not build a route (error ${result.errorCode})', retry: _restart);
       return;
     }
 
     setState(() {
       _summary = RouteSummary(
-        distanceText: _formatDistance(result),
-        duration: Duration(seconds: (result['timeSeconds'] as int?) ?? 0),
+        distanceText: _formatDistance(result.distanceText, result.distanceUnits),
+        duration: Duration(seconds: result.timeSeconds),
       );
       _phase = _Phase.preview;
     });
+  }
+
+  Future<void> _cancelRouteBuild() async {
+    // Completes the in-flight build as cancelled on the native side.
+    await NavChannel.closeRouting();
+    if (mounted) _close(const NavigationResult(NavigationOutcome.cancelledByUser));
   }
 
   Future<void> _startGuidance() async {
@@ -321,10 +341,9 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
     Navigator.of(context).pop(result);
   }
 
-  static String _formatDistance(Map<dynamic, dynamic> result) {
-    final value = result['distance'] as String?;
+  static String _formatDistance(String? value, String? units) {
     if (value == null || value.isEmpty) return '—';
-    return '$value ${_unitSuffix(result['distanceUnits'] as String?)}'.trim();
+    return '$value ${_unitSuffix(units)}'.trim();
   }
 
   static String _unitSuffix(String? unitsName) => switch (unitsName) {
@@ -362,8 +381,15 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
   Widget _buildOverlay(BuildContext context) {
     switch (_phase) {
       case _Phase.initializing:
-      case _Phase.buildingRoute:
         return _CenteredStatus(text: _statusText);
+      case _Phase.buildingRoute:
+        return _CenteredStatus(
+          text: _statusText,
+          subtext: _slowBuild
+              ? 'Large regions can take a few minutes on first use'
+              : null,
+          onCancel: _cancelRouteBuild,
+        );
       case _Phase.downloading:
         return _DownloadPanel(
           label: _downloadingBaseMaps
@@ -404,14 +430,17 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
 // ─────────────────────────────────────────────────────────────
 
 class _CenteredStatus extends StatelessWidget {
-  const _CenteredStatus({required this.text});
+  const _CenteredStatus({required this.text, this.subtext, this.onCancel});
   final String text;
+  final String? subtext;
+  final VoidCallback? onCancel;
 
   @override
   Widget build(BuildContext context) {
     return Center(
       child: Container(
         padding: const EdgeInsets.all(24),
+        constraints: const BoxConstraints(maxWidth: 360),
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.92),
           borderRadius: BorderRadius.circular(16),
@@ -422,6 +451,18 @@ class _CenteredStatus extends StatelessWidget {
             const CircularProgressIndicator(),
             const SizedBox(height: 16),
             Text(text, style: Theme.of(context).textTheme.titleMedium),
+            if (subtext != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                subtext!,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+            if (onCancel != null) ...[
+              const SizedBox(height: 12),
+              TextButton(onPressed: onCancel, child: const Text('Cancel')),
+            ],
           ],
         ),
       ),

@@ -55,9 +55,18 @@ private class OmMapPlatformView(
   override fun getView(): View = mapView
 
   override fun dispose() {
-    plugin.activityLifecycle?.removeObserver(controller)
-    // MapController.onDestroy only detaches listeners; the render surface itself is
-    // torn down by MapView's SurfaceHolder callback when the view leaves the window.
+    val lifecycle = plugin.activityLifecycle
+    lifecycle?.removeObserver(controller)
+    // The view is being torn out while the activity may still be running, so the
+    // observer will never deliver the wind-down events. Replay them manually so
+    // the native map leaves rendering mode in order (pause → stop → destroy)
+    // instead of relying solely on the surface being destroyed underneath it.
+    if (lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true) {
+      controller.onPause(NoopLifecycleOwner)
+    }
+    if (lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == true) {
+      controller.onStop(NoopLifecycleOwner)
+    }
     controller.onDestroy(NoopLifecycleOwner)
   }
 

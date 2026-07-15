@@ -7,13 +7,11 @@ import android.util.Log
 import app.organicmaps.sdk.Framework
 import app.organicmaps.sdk.Router
 import app.organicmaps.sdk.location.LocationListener
-import app.organicmaps.sdk.location.LocationState
 import app.organicmaps.sdk.routing.ResultCodes
 import app.organicmaps.sdk.routing.RouteMarkType
 import app.organicmaps.sdk.routing.RoutingInfo
 import app.organicmaps.sdk.sound.TtsPlayer
 import io.flutter.plugin.common.EventChannel
-import io.flutter.plugin.common.MethodChannel
 
 /**
  * Headless navigation session driving the Organic Maps routing engine.
@@ -37,7 +35,7 @@ object NavigationSession {
   private val mainHandler = Handler(Looper.getMainLooper())
 
   private var routingListenerAttached = false
-  private var pendingBuildResult: MethodChannel.Result? = null
+  private var pendingBuildCallback: ((Result<WireRouteBuildResult>) -> Unit)? = null
 
   var guidanceSink: EventChannel.EventSink? = null
   private var guiding = false
@@ -47,61 +45,64 @@ object NavigationSession {
   // ── Route building ────────────────────────────────────────────
 
   fun buildRoute(
-    startLat: Double, startLon: Double, startName: String,
-    destLat: Double, destLon: Double, destName: String,
-    routerType: String,
-    result: MethodChannel.Result,
+    start: WirePoint,
+    destination: WirePoint,
+    mode: WireTravelMode,
+    callback: (Result<WireRouteBuildResult>) -> Unit,
   ) {
-    if (pendingBuildResult != null) {
-      result.error("build_in_progress", "Another route build is already in progress", null)
+    if (pendingBuildCallback != null) {
+      callback(Result.failure(FlutterError("build_in_progress", "Another route build is already in progress", null)))
       return
     }
     attachRoutingListener()
-    pendingBuildResult = result
+    pendingBuildCallback = callback
 
     Framework.nativeCloseRouting()
-    Router.set(parseRouter(routerType))
-    Framework.nativeAddRoutePoint(startName, "", RouteMarkType.Start, 0, false, startLat, startLon, true)
-    Framework.nativeAddRoutePoint(destName, "", RouteMarkType.Finish, 0, false, destLat, destLon, true)
+    Router.set(parseRouter(mode))
+    Framework.nativeAddRoutePoint(
+      start.name ?: "Start", "", RouteMarkType.Start, 0, false, start.latitude, start.longitude, true)
+    Framework.nativeAddRoutePoint(
+      destination.name ?: "Destination", "", RouteMarkType.Finish, 0, false,
+      destination.latitude, destination.longitude, true)
     Framework.nativeBuildRoute()
   }
 
   private fun attachRoutingListener() {
     if (routingListenerAttached) return
     Framework.nativeSetRoutingListener { resultCode, missingMaps ->
-      val pending = pendingBuildResult
+      val pending = pendingBuildCallback
       if (pending == null) {
         // No build in flight: this is a mid-guidance rebuild (e.g. the position
         // deviated off route). The rebuild can deactivate the map camera's route
         // following (RoutingManager::OnRemoveRoute) while the session-level follow
         // flag stays set — so a plain FollowRoute would no-op at EnableFollowMode.
-        // Toggle both layers off and on to re-engage the nav camera.
         Log.i(TAG, "mid-guidance routing event: code=$resultCode missing=${missingMaps?.size ?: 0}")
         if (guiding && (resultCode == ResultCodes.NO_ERROR || resultCode == ResultCodes.HAS_WARNINGS)) {
           Framework.nativeFollowRoute()
         }
         return@nativeSetRoutingListener
       }
-      pendingBuildResult = null
+      pendingBuildCallback = null
       when (resultCode) {
         ResultCodes.NO_ERROR, ResultCodes.HAS_WARNINGS -> {
           val info = safeFollowingInfo()
-          pending.success(
-            mapOf(
-              "ok" to true,
-              "distance" to info?.distToTarget?.mDistanceStr,
-              "distanceUnits" to info?.distToTarget?.mUnits?.name,
-              "timeSeconds" to (info?.totalTimeInSeconds ?: 0),
-            )
-          )
+          pending(Result.success(WireRouteBuildResult(
+            ok = true,
+            cancelled = false,
+            errorCode = 0,
+            missingMaps = emptyList(),
+            distanceText = info?.distToTarget?.mDistanceStr,
+            distanceUnits = info?.distToTarget?.mUnits?.name,
+            timeSeconds = (info?.totalTimeInSeconds ?: 0).toLong(),
+          )))
         }
-        else -> pending.success(
-          mapOf(
-            "ok" to false,
-            "code" to resultCode,
-            "missingMaps" to (missingMaps?.toList() ?: emptyList<String>()),
-          )
-        )
+        else -> pending(Result.success(WireRouteBuildResult(
+          ok = false,
+          cancelled = false,
+          errorCode = resultCode.toLong(),
+          missingMaps = missingMaps?.toList() ?: emptyList(),
+          timeSeconds = 0,
+        )))
       }
     }
     routingListenerAttached = true
@@ -109,9 +110,9 @@ object NavigationSession {
 
   // ── Guidance ──────────────────────────────────────────────────
 
-  fun startGuidance(simulate: Boolean, voice: Boolean, result: MethodChannel.Result) {
+  fun startGuidance(simulate: Boolean, voice: Boolean, callback: (Result<Unit>) -> Unit) {
     if (!Framework.nativeIsRouteBuilt()) {
-      result.error("no_route", "No route has been built", null)
+      callback(Result.failure(FlutterError("no_route", "No route has been built", null)))
       return
     }
     voiceEnabled = voice
@@ -143,7 +144,7 @@ object NavigationSession {
       val junctions = Framework.nativeGetRouteJunctionPoints(SIMULATION_STEP_M)
       if (junctions == null || junctions.isEmpty()) {
         disarmFollowTrigger()
-        result.error("no_route_points", "Could not get route points for simulation", null)
+        callback(Result.failure(FlutterError("no_route_points", "Could not get route points for simulation", null)))
         return
       }
       locationHelper.startNavigationSimulation(junctions)
@@ -154,7 +155,7 @@ object NavigationSession {
 
     guiding = true
     mainHandler.post(guidancePump)
-    result.success(true)
+    callback(Result.success(Unit))
   }
 
   // ── Follow-camera engagement (one-shot) ───────────────────────
@@ -235,6 +236,18 @@ object NavigationSession {
   }
 
   fun closeRouting() {
+    // A build may still be in flight (e.g. the page was closed while a large
+    // region was calculating). Complete it as cancelled so the callback isn't
+    // orphaned — an orphaned callback would block every later build with
+    // "build_in_progress".
+    pendingBuildCallback?.invoke(Result.success(WireRouteBuildResult(
+      ok = false,
+      cancelled = true,
+      errorCode = 0,
+      missingMaps = emptyList(),
+      timeSeconds = 0,
+    )))
+    pendingBuildCallback = null
     stopGuidance()
     Framework.nativeCloseRouting()
     Framework.nativeRemoveRoutePoints()
@@ -248,9 +261,6 @@ object NavigationSession {
         guidanceSink?.success(serialize(info))
         if (voiceEnabled) speakPendingNotifications()
       }
-      try {
-        Log.d(TAG, "myPositionMode=${LocationState.nameOf(LocationState.getMode())}")
-      } catch (_: Exception) {}
       mainHandler.postDelayed(this, GUIDANCE_INTERVAL_MS)
     }
   }
@@ -289,9 +299,9 @@ object NavigationSession {
     "speedLimitMps" to info.speedLimitMps,
   )
 
-  private fun parseRouter(type: String): Router = when (type.lowercase()) {
-    "walk", "pedestrian" -> Router.Pedestrian
-    "cycle", "bicycle" -> Router.Bicycle
-    else -> Router.Vehicle
+  private fun parseRouter(mode: WireTravelMode): Router = when (mode) {
+    WireTravelMode.WALK -> Router.Pedestrian
+    WireTravelMode.CYCLE -> Router.Bicycle
+    WireTravelMode.DRIVE -> Router.Vehicle
   }
 }
