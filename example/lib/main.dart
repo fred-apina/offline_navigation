@@ -75,12 +75,16 @@ class _DemoHomeState extends State<DemoHome> {
           Text('Route', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           for (final trip in _trips)
-            RadioListTile<_Trip>(
+            ListTile(
+              leading: Icon(
+                _trip == trip
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                color: _trip == trip ? Theme.of(context).colorScheme.primary : null,
+              ),
               title: Text(trip.label),
               subtitle: Text('${trip.start.name} → ${trip.destination.name}'),
-              value: trip,
-              groupValue: _trip,
-              onChanged: (v) => setState(() => _trip = v!),
+              onTap: () => setState(() => _trip = trip),
             ),
           const Divider(height: 32),
           Text('Travel mode', style: Theme.of(context).textTheme.titleMedium),
