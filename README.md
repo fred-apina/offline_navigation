@@ -9,28 +9,63 @@ automatically downloading the offline map of the country the route is in:
 ```dart
 final result = await Navigator.push(context, MaterialPageRoute(
   builder: (_) => OfflineNavigationPage(
-    start: NavPoint(latitude: -3.3869, longitude: 36.6830, name: 'Arusha Gate'),
-    destination: NavPoint(latitude: -3.2379, longitude: 36.8219, name: 'Momella Lakes'),
+    start: NavPoint(latitude: -3.3869, longitude: 36.6830, name: 'Arusha'),
+    destination: NavPoint(latitude: -3.3689, longitude: 36.8286, name: 'Usa River'),
     travelMode: TravelMode.drive,
     options: NavOptions(voiceGuidance: true),
   ),
 ));
+// result.outcome: arrived | cancelledByUser | failed
 ```
 
-> **Status: Phase 0 spike.** The current code proves the core architecture:
-> the Organic Maps map surface rendering inside a Flutter platform view, with
-> the engine initialized by the plugin (no custom Application class needed).
-> The navigation page API above is the target for v1 and is not implemented yet.
->
-> The Android build currently consumes the Organic Maps SDK as a local Gradle
-> module (see `example/android/settings.gradle.kts`); a prebuilt AAR on Maven
-> replaces this before release.
+The navigation page manages its own flow — engine initialization, map
+download with progress UI, route preview with distance/ETA, then live
+turn-by-turn guidance with voice instructions — and pops back to your app
+with a `NavigationResult` when done. Everything after the map download works
+fully offline.
+
+## Installation
+
+1. Add the dependency:
+
+   ```sh
+   flutter pub add offline_navigation
+   ```
+
+   The native Organic Maps engine is downloaded automatically as a prebuilt
+   Android library (~80 MB, one-time) during your next Gradle sync.
+
+2. Enable core library desugaring in `android/app/build.gradle.kts` (required
+   by the engine on `minSdkVersion < 26`; the build fails with instructions if
+   it is missing):
+
+   ```kotlin
+   android {
+     compileOptions {
+       isCoreLibraryDesugaringEnabled = true
+     }
+   }
+   dependencies {
+     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+   }
+   ```
+
+That's it. Asset packaging (`noCompress`) is configured automatically.
 
 ## Platform support
 
 | Android | iOS |
 |---|---|
 | ✅ (minSdk 21) | Planned |
+
+## How it works
+
+The Organic Maps map surface is embedded in your widget tree via a platform
+view, while all navigation UI (instruction banner, lane hints, ETA bar,
+download and preview screens) is drawn in Flutter and fed by native event
+streams. The engine — rendering, routing, and map management — is the same
+C++ core that powers the Organic Maps app, consumed as a prebuilt AAR
+(`io.github.fred-apina:organicmaps-sdk`).
 
 ## License & attribution
 
