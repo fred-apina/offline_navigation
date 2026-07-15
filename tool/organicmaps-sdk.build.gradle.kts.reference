@@ -1,0 +1,164 @@
+import com.vanniktech.maven.publish.AndroidSingleVariantLibrary
+
+plugins {
+    id("com.android.library")
+    id("kotlin-android")
+    // 0.34.0 is the newest release compatible with this build tree's toolchain
+    // (AGP 8.7.x, Gradle 8.12). 0.35.0 calls ProjectLayout.getSettingsDirectory()
+    // (Gradle 8.13+); 0.36.0+ require AGP 8.13.0.
+    id("com.vanniktech.maven.publish") version "0.34.0"
+}
+
+android {
+    namespace = "app.organicmaps.sdk"
+    compileSdk = 35
+    // Must match propNdkVersion in the parent organicmaps repo: the C++ core
+    // (e.g. libs/timezone) requires the r29 libc++; r26 fails to compile it.
+    ndkVersion = "29.0.14206865"
+
+    defaultConfig {
+        minSdk = 21
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        consumerProguardFiles("consumer-rules.pro")
+
+        // NDK configuration for native code
+        ndk {
+            // "om.abiFilters" (set e.g. in a consumer's gradle.properties) restricts
+            // ABIs for faster local development builds; defaults to all supported ABIs.
+            val abiOverride = (project.findProperty("om.abiFilters") as String?)
+                ?.split(",")?.map { it.trim() }
+            abiFilters += (abiOverride ?: listOf("armeabi-v7a", "arm64-v8a", "x86_64", "x86"))
+        }
+
+        // CMake configuration for building the Organic Maps C++ core
+        externalNativeBuild {
+            cmake {
+                cppFlags += listOf("-fexceptions", "-frtti")
+                cFlags += listOf("-fno-function-sections", "-fno-data-sections", "-Wno-extern-c-compat")
+                arguments += listOf(
+                    "-DANDROID_TOOLCHAIN=clang",
+                    "-DANDROID_STL=c++_static",
+                    "-DSKIP_TESTS=ON",
+                    "-DSKIP_TOOLS=ON"
+                )
+                targets += "organicmaps"
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+
+    compileOptions {
+        isCoreLibraryDesugaringEnabled = true
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    buildFeatures {
+        buildConfig = true
+        dataBinding = true
+    }
+
+    // Reference the Organic Maps CMakeLists.txt from the parent project
+    externalNativeBuild {
+        cmake {
+            version = "3.22.1+"
+            path = file("../../../CMakeLists.txt")
+            buildStagingDirectory = file("./nativeOutputs")
+        }
+    }
+
+    // Native libraries are stripped in the published AAR (standard for SDK
+    // artifacts); unstripped RelWithDebInfo binaries would exceed Maven/GitHub
+    // file-size limits. Debug symbols remain available in the local build tree.
+
+    // Don't compress these extensions in assets/ because our random FileReader
+    // can't read zip-compressed files from apk.
+    androidResources {
+        noCompress.addAll(listOf("txt", "bin", "html", "png", "json", "mwm", "ttf", "sdf", "ui", "config", "csv", "spv", "obj"))
+    }
+}
+
+// ── Maven Central publishing (Sonatype Central Portal) ──────────────────────
+//
+// Uses the vanniktech plugin, which packages the release AAR + sources + javadoc
+// jars, generates a compliant POM, and uploads to the Central Portal.
+//
+// Signing is REQUIRED by Central and is enabled only when a signing key is
+// configured (see below), so `publishToMavenLocal` still works for validation
+// without secrets. To publish for real, set these in ~/.gradle/gradle.properties
+// (NOT in the repo) or as ORG_GRADLE_PROJECT_* env vars:
+//   mavenCentralUsername / mavenCentralPassword  (Central Portal token)
+//   signingInMemoryKey / signingInMemoryKeyId / signingInMemoryKeyPassword
+// then run:  ./gradlew :sdk:publishAndReleaseToMavenCentral --no-configuration-cache
+mavenPublishing {
+    coordinates(
+        "io.github.fred-apina",
+        "organicmaps-sdk",
+        project.findProperty("om.sdkVersion") as String? ?: "0.1.0",
+    )
+    configure(AndroidSingleVariantLibrary(variant = "release", sourcesJar = true, publishJavadocJar = true))
+    publishToMavenCentral()
+
+    // Only sign when a key is present, so local validation needs no secrets.
+    if (project.hasProperty("signingInMemoryKey") || project.hasProperty("signing.keyId")) {
+        signAllPublications()
+    }
+
+    pom {
+        name.set("Organic Maps SDK for Android")
+        description.set(
+            "Prebuilt Organic Maps engine (map rendering, offline routing, map " +
+            "downloads) consumed by the offline_navigation Flutter plugin.",
+        )
+        url.set("https://github.com/fred-apina/offline_navigation")
+        licenses {
+            license {
+                name.set("The Apache License, Version 2.0")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+                distribution.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+            }
+        }
+        developers {
+            developer {
+                id.set("fred-apina")
+                name.set("fred-apina")
+                url.set("https://github.com/fred-apina/")
+            }
+        }
+        scm {
+            url.set("https://github.com/fred-apina/offline_navigation/")
+            connection.set("scm:git:git://github.com/fred-apina/offline_navigation.git")
+            developerConnection.set("scm:git:ssh://git@github.com/fred-apina/offline_navigation.git")
+        }
+    }
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+    
+    // AndroidX dependencies required by Organic Maps
+    implementation("androidx.annotation:annotation:1.9.1")
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.recyclerview:recyclerview:1.4.0")
+    implementation("androidx.fragment:fragment:1.8.9")
+    implementation("androidx.fragment:fragment-ktx:1.8.9")
+    implementation("androidx.lifecycle:lifecycle-process:2.9.4")
+    implementation("androidx.constraintlayout:constraintlayout:2.2.1")
+    implementation("androidx.viewpager2:viewpager2:1.1.0")
+    implementation("androidx.car.app:app:1.7.0")
+    implementation("com.google.android.material:material:1.12.0")
+}

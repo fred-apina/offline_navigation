@@ -21,9 +21,12 @@ allprojects {
     }
 }
 
-// The prebuilt Organic Maps SDK AAR is resolved from these repositories. They
-// must be visible to the consuming app project (which resolves the runtime
-// classpath), not just to this plugin project — hence rootProject.allprojects.
+// The prebuilt Organic Maps SDK AAR is resolved from Maven Central (declared as
+// a default repository in `allprojects` above). The GitHub-Pages Maven repo is
+// kept only as a fallback while the Central artifact propagates / for older
+// SDK versions; it can be removed once everything consumers need is on Central.
+// These repos must be visible to the consuming *app* project (which resolves the
+// runtime classpath), not just to this plugin project — hence rootProject.allprojects.
 rootProject.allprojects {
     repositories {
         maven { url = uri("https://fred-apina.github.io/maven-repo/") }
