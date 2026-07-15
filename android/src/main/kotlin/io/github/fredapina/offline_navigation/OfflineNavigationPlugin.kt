@@ -1,7 +1,11 @@
 package io.github.fredapina.offline_navigation
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
 import android.view.WindowManager
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import app.organicmaps.sdk.Framework
 import app.organicmaps.sdk.downloader.MapManager
@@ -12,6 +16,7 @@ import io.flutter.embedding.engine.plugins.lifecycle.HiddenLifecycleReference
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.PluginRegistry
 
 /**
  * Entry point of the offline_navigation plugin.
@@ -19,12 +24,17 @@ import io.flutter.plugin.common.MethodChannel
  * Registers the map platform view, the engine method channel, and the
  * download/guidance event channels.
  */
-class OfflineNavigationPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandler {
+class OfflineNavigationPlugin :
+  FlutterPlugin,
+  ActivityAware,
+  MethodChannel.MethodCallHandler,
+  PluginRegistry.RequestPermissionsResultListener {
   companion object {
     const val ENGINE_CHANNEL = "offline_navigation/engine"
     const val DOWNLOADS_CHANNEL = "offline_navigation/downloads"
     const val GUIDANCE_CHANNEL = "offline_navigation/guidance"
     const val MAP_VIEW_TYPE = "offline_navigation/map_view"
+    private const val LOCATION_PERMISSION_REQUEST = 24371
   }
 
   private lateinit var channel: MethodChannel
@@ -37,6 +47,7 @@ class OfflineNavigationPlugin : FlutterPlugin, ActivityAware, MethodChannel.Meth
     private set
 
   private var activity: Activity? = null
+  private var pendingPermissionResult: MethodChannel.Result? = null
 
   override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
     flutterBinding = binding
@@ -73,6 +84,18 @@ class OfflineNavigationPlugin : FlutterPlugin, ActivityAware, MethodChannel.Meth
         )
       }
       "isInitialized" -> result.success(OmEngine.isReady)
+
+      // ── Base world maps (first-run bootstrap) ───────────────
+      "getBaseMapBytes" -> result.success(ResourceBootstrap.bytesToDownload())
+      "downloadBaseMaps" -> ResourceBootstrap.download(result)
+      "cancelBaseMapDownload" -> {
+        ResourceBootstrap.cancel()
+        result.success(true)
+      }
+
+      // ── Location permission ─────────────────────────────────
+      "hasLocationPermission" -> result.success(hasLocationPermission())
+      "requestLocationPermission" -> requestLocationPermission(result)
 
       // ── Map data ────────────────────────────────────────────
       "resolveCountry" -> {
@@ -159,9 +182,56 @@ class OfflineNavigationPlugin : FlutterPlugin, ActivityAware, MethodChannel.Meth
     }
   }
 
+  // ── Location permission ───────────────────────────────────────
+
+  private fun hasLocationPermission(): Boolean {
+    val context = flutterBinding?.applicationContext ?: return false
+    return ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+      PackageManager.PERMISSION_GRANTED ||
+      ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+      PackageManager.PERMISSION_GRANTED
+  }
+
+  private fun requestLocationPermission(result: MethodChannel.Result) {
+    if (hasLocationPermission()) {
+      result.success(true)
+      return
+    }
+    val currentActivity = activity
+    if (currentActivity == null) {
+      result.error("no_activity", "Plugin is not attached to an activity", null)
+      return
+    }
+    if (pendingPermissionResult != null) {
+      result.error("in_progress", "A permission request is already in progress", null)
+      return
+    }
+    pendingPermissionResult = result
+    ActivityCompat.requestPermissions(
+      currentActivity,
+      arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+      LOCATION_PERMISSION_REQUEST,
+    )
+  }
+
+  override fun onRequestPermissionsResult(
+    requestCode: Int,
+    permissions: Array<out String>,
+    grantResults: IntArray,
+  ): Boolean {
+    if (requestCode != LOCATION_PERMISSION_REQUEST) return false
+    val granted = grantResults.any { it == PackageManager.PERMISSION_GRANTED }
+    pendingPermissionResult?.success(granted)
+    pendingPermissionResult = null
+    return true
+  }
+
+  // ── ActivityAware ─────────────────────────────────────────────
+
   override fun onAttachedToActivity(binding: ActivityPluginBinding) {
     activity = binding.activity
     activityLifecycle = (binding.lifecycle as HiddenLifecycleReference).lifecycle
+    binding.addRequestPermissionsResultListener(this)
   }
 
   override fun onDetachedFromActivityForConfigChanges() {
@@ -172,6 +242,7 @@ class OfflineNavigationPlugin : FlutterPlugin, ActivityAware, MethodChannel.Meth
   override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
     activity = binding.activity
     activityLifecycle = (binding.lifecycle as HiddenLifecycleReference).lifecycle
+    binding.addRequestPermissionsResultListener(this)
   }
 
   override fun onDetachedFromActivity() {

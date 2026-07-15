@@ -12,6 +12,7 @@ import app.organicmaps.sdk.location.LocationHelper
 import app.organicmaps.sdk.location.LocationProviderFactory
 import app.organicmaps.sdk.settings.UnitLocale
 import app.organicmaps.sdk.util.ConnectionState
+import app.organicmaps.sdk.util.StorageUtils
 
 /**
  * Owns the single Organic Maps engine instance for the host application.
@@ -45,9 +46,17 @@ object OmEngine {
           state = State.INITIALIZING
           onReadyQueue.add(onReady)
           try {
+            val appContext = context.applicationContext
+            selfHealIfPreviousInitCrashed(appContext)
+            markInitInFlight(appContext, true)
             val om = organicMaps
-              ?: createEngine(context.applicationContext).also { organicMaps = it }
-            om.init { mainHandler.post { becomeReady() } }
+              ?: createEngine(appContext).also { organicMaps = it }
+            om.init {
+              mainHandler.post {
+                markInitInFlight(appContext, false)
+                becomeReady()
+              }
+            }
           } catch (e: Throwable) {
             Log.e(TAG, "Organic Maps engine initialization failed", e)
             state = State.IDLE
@@ -57,6 +66,38 @@ object OmEngine {
         }
       }
     }
+  }
+
+  // ── Crash-loop self-heal ────────────────────────────────────────
+  //
+  // A native abort during engine init (e.g. corrupt persisted state) kills the
+  // process before Java can react, so it can't be caught. Instead: set a marker
+  // before init and clear it on success. If the marker is still set on the next
+  // launch, the previous init died mid-flight — delete the engine's settings
+  // file (best-effort) so a corrupt one can't crash us forever. Downloaded maps
+  // and host-app files are never touched.
+
+  private const val PREFS_NAME = "offline_navigation_engine"
+  private const val KEY_INIT_IN_FLIGHT = "engine_init_in_flight"
+
+  private fun selfHealIfPreviousInitCrashed(context: Context) {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    if (!prefs.getBoolean(KEY_INIT_IN_FLIGHT, false)) return
+    Log.w(TAG, "Previous engine init never completed — clearing engine settings (self-heal)")
+    try {
+      val settings = java.io.File(StorageUtils.getSettingsPath(context), "settings.ini")
+      if (settings.exists() && settings.delete()) {
+        Log.w(TAG, "Deleted possibly-corrupt ${settings.absolutePath}")
+      }
+    } catch (e: Exception) {
+      Log.w(TAG, "Settings self-heal failed: ${e.message}")
+    }
+  }
+
+  @Suppress("ApplySharedPref") // must survive an immediate native crash
+  private fun markInitInFlight(context: Context, inFlight: Boolean) {
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+      .edit().putBoolean(KEY_INIT_IN_FLIGHT, inFlight).commit()
   }
 
   private fun becomeReady() {

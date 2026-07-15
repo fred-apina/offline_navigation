@@ -6,12 +6,23 @@ import app.organicmaps.sdk.downloader.MapManager
 import io.flutter.plugin.common.EventChannel
 
 /**
- * Streams map download status/progress events from the native storage to Flutter.
+ * Shared sink for download-related events. Fed both by the native storage
+ * callbacks (country downloads) and by [ResourceBootstrap] (base world maps).
  * Event shape: {countryId, status, progress, errorCode?, localSize?, remoteSize?}
  */
-class DownloadStreamHandler : EventChannel.StreamHandler {
+object DownloadEventBus {
   private val mainHandler = Handler(Looper.getMainLooper())
-  private var eventSink: EventChannel.EventSink? = null
+
+  @Volatile
+  var sink: EventChannel.EventSink? = null
+
+  fun send(event: Map<String, Any?>) {
+    mainHandler.post { sink?.success(event) }
+  }
+}
+
+/** Streams map download status/progress events from the native storage to Flutter. */
+class DownloadStreamHandler : EventChannel.StreamHandler {
   private var subscriptionSlot: Int = -1
 
   private val storageCallback = object : MapManager.StorageCallback {
@@ -22,7 +33,7 @@ class DownloadStreamHandler : EventChannel.StreamHandler {
       // onProgress() instead; here we only report the status transition. progress = -1
       // is a sentinel meaning "no progress info in this event".
       for (item in data) {
-        send(
+        DownloadEventBus.send(
           mapOf(
             "countryId" to item.countryId,
             "status" to item.newStatus,
@@ -35,7 +46,7 @@ class DownloadStreamHandler : EventChannel.StreamHandler {
 
     override fun onProgress(countryId: String, localSize: Long, remoteSize: Long) {
       val progress = if (remoteSize > 0) ((localSize * 100.0) / remoteSize).toInt() else 0
-      send(
+      DownloadEventBus.send(
         mapOf(
           "countryId" to countryId,
           "status" to 1, // in progress
@@ -47,12 +58,8 @@ class DownloadStreamHandler : EventChannel.StreamHandler {
     }
   }
 
-  private fun send(event: Map<String, Any?>) {
-    mainHandler.post { eventSink?.success(event) }
-  }
-
   override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-    eventSink = events
+    DownloadEventBus.sink = events
     try {
       subscriptionSlot = MapManager.nativeSubscribe(storageCallback)
     } catch (e: Exception) {
@@ -67,7 +74,7 @@ class DownloadStreamHandler : EventChannel.StreamHandler {
       } catch (_: Exception) {}
       subscriptionSlot = -1
     }
-    eventSink = null
+    DownloadEventBus.sink = null
   }
 }
 

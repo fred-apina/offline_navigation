@@ -8,9 +8,32 @@ abstract final class NavChannel {
   static const EventChannel _downloads = EventChannel('offline_navigation/downloads');
   static const EventChannel _guidance = EventChannel('offline_navigation/guidance');
 
+  /// Pseudo country id used on the downloads stream for base world maps.
+  static const String baseMapId = '__base__';
+
   static Future<void> initialize() async {
     await _channel.invokeMethod<bool>('initialize');
   }
+
+  /// Bytes of base world maps (World.mwm/WorldCoasts.mwm) still missing.
+  /// 0 means they are present.
+  static Future<int> getBaseMapBytes() async =>
+      await _channel.invokeMethod<int>('getBaseMapBytes') ?? 0;
+
+  /// Downloads the missing base world maps. Progress is streamed on
+  /// [downloadEvents] under [baseMapId]. Throws a [PlatformException] on failure.
+  static Future<void> downloadBaseMaps() =>
+      _channel.invokeMethod<void>('downloadBaseMaps');
+
+  static Future<void> cancelBaseMapDownload() =>
+      _channel.invokeMethod<void>('cancelBaseMapDownload');
+
+  static Future<bool> hasLocationPermission() async =>
+      await _channel.invokeMethod<bool>('hasLocationPermission') ?? false;
+
+  /// Requests location permission from the user if not already granted.
+  static Future<bool> requestLocationPermission() async =>
+      await _channel.invokeMethod<bool>('requestLocationPermission') ?? false;
 
   /// Returns the country map ID covering the point, or null (e.g. open sea).
   static Future<String?> resolveCountry(double lat, double lon) =>

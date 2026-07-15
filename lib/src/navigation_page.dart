@@ -51,7 +51,9 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
   // Download state.
   final List<String> _countriesToDownload = [];
   int _downloadProgress = 0;
+  bool _downloadingBaseMaps = false;
   StreamSubscription<MapDownloadEvent>? _downloadSub;
+  VoidCallback? _errorRetry;
 
   // Route/guidance state.
   RouteSummary? _summary;
@@ -69,6 +71,16 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
   void dispose() {
     _downloadSub?.cancel();
     _guidanceSub?.cancel();
+    // Stop any in-flight downloads: leaving them running after the user backs
+    // out would silently keep consuming bandwidth. Both cancels are no-ops
+    // when nothing is downloading. Partial files resume on the next attempt.
+    if (_phase == _Phase.downloading) {
+      if (_downloadingBaseMaps) {
+        unawaited(NavChannel.cancelBaseMapDownload());
+      } else if (_countriesToDownload.isNotEmpty) {
+        unawaited(NavChannel.cancelDownload(List.of(_countriesToDownload)));
+      }
+    }
     // Best-effort: tear down the native route so the next page starts clean.
     unawaited(NavChannel.closeRouting());
     unawaited(NavChannel.setKeepScreenOn(false));
@@ -80,13 +92,59 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
       _setStatus('Initializing map engine…');
       await NavChannel.initialize();
       setState(() => _mapReady = true);
+      if (!await _ensureBaseMaps()) return;
       await _ensureMaps();
     } catch (e) {
-      _fail('Could not start navigation: $e');
+      _fail('Could not start navigation: $e', retry: _restart);
     }
   }
 
+  /// Re-runs the whole bootstrap after a failure. Every step is idempotent:
+  /// engine init resolves immediately once ready, and downloads skip
+  /// already-present files.
+  void _restart() {
+    setState(() {
+      _phase = _Phase.initializing;
+      _errorMessage = null;
+      _errorRetry = null;
+    });
+    _bootstrap();
+  }
+
   // ── Map data ────────────────────────────────────────────────
+
+  /// Downloads World.mwm/WorldCoasts.mwm on first run. Without them the map
+  /// is blank outside downloaded countries. Returns false if the flow should
+  /// stop (failure or cancellation).
+  Future<bool> _ensureBaseMaps() async {
+    _setStatus('Checking base world map…');
+    final missingBytes = await NavChannel.getBaseMapBytes();
+    if (missingBytes <= 0) return true;
+
+    setState(() {
+      _phase = _Phase.downloading;
+      _downloadingBaseMaps = true;
+      _downloadProgress = 0;
+    });
+    _downloadSub?.cancel();
+    _downloadSub = NavChannel.downloadEvents().listen((event) {
+      if (event.countryId == NavChannel.baseMapId && event.progress >= 0) {
+        setState(() => _downloadProgress = event.progress);
+      }
+    });
+
+    try {
+      await NavChannel.downloadBaseMaps();
+      return true;
+    } on PlatformException catch (e) {
+      if (e.code == 'cancelled') return false; // user cancelled; page is closing
+      _fail(e.message ?? 'Could not download the base world map', retry: _restart);
+      return false;
+    } finally {
+      _downloadSub?.cancel();
+      if (mounted) setState(() => _downloadingBaseMaps = false);
+    }
+  }
 
   Future<void> _ensureMaps() async {
     _setStatus('Checking offline maps…');
@@ -142,7 +200,11 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
   }
 
   Future<void> _cancelDownload() async {
-    await NavChannel.cancelDownload(_countriesToDownload);
+    if (_downloadingBaseMaps) {
+      await NavChannel.cancelBaseMapDownload();
+    } else {
+      await NavChannel.cancelDownload(_countriesToDownload);
+    }
     if (mounted) _close(const NavigationResult(NavigationOutcome.cancelledByUser));
   }
 
@@ -185,6 +247,20 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
   }
 
   Future<void> _startGuidance() async {
+    // Live guidance follows the device GPS, which needs location permission.
+    // Simulated guidance drives itself and works without it.
+    if (!widget.options.simulateRoute) {
+      final granted = await NavChannel.requestLocationPermission();
+      if (!granted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Location permission is required for turn-by-turn navigation.'),
+          ));
+        }
+        return; // stay on the preview so the user can try again
+      }
+    }
+
     _guidanceSub?.cancel();
     _guidanceSub = NavChannel.guidanceEvents().listen(_onGuidance);
     try {
@@ -226,11 +302,12 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
 
   void _setStatus(String text) => setState(() => _statusText = text);
 
-  void _fail(String message) {
+  void _fail(String message, {VoidCallback? retry}) {
     if (!mounted) return;
     setState(() {
       _phase = _Phase.error;
       _errorMessage = message;
+      _errorRetry = retry;
     });
   }
 
@@ -289,7 +366,9 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
         return _CenteredStatus(text: _statusText);
       case _Phase.downloading:
         return _DownloadPanel(
-          countries: _countriesToDownload,
+          label: _downloadingBaseMaps
+              ? 'World base map (first run)'
+              : _countriesToDownload.join(', '),
           progress: _downloadProgress,
           onCancel: _cancelDownload,
         );
@@ -313,6 +392,7 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
       case _Phase.error:
         return _ErrorPanel(
           message: _errorMessage ?? 'Something went wrong',
+          onRetry: _errorRetry,
           onClose: () => _close(NavigationResult(NavigationOutcome.failed, _errorMessage)),
         );
     }
@@ -351,18 +431,17 @@ class _CenteredStatus extends StatelessWidget {
 
 class _DownloadPanel extends StatelessWidget {
   const _DownloadPanel({
-    required this.countries,
+    required this.label,
     required this.progress,
     required this.onCancel,
   });
 
-  final List<String> countries;
+  final String label;
   final int progress;
   final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) {
-    final label = countries.isEmpty ? 'map' : countries.join(', ');
     return Align(
       alignment: Alignment.bottomCenter,
       child: _BottomCard(
@@ -550,9 +629,10 @@ class _GuidanceChrome extends StatelessWidget {
 }
 
 class _ErrorPanel extends StatelessWidget {
-  const _ErrorPanel({required this.message, required this.onClose});
+  const _ErrorPanel({required this.message, required this.onClose, this.onRetry});
   final String message;
   final VoidCallback onClose;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -563,7 +643,20 @@ class _ErrorPanel extends StatelessWidget {
           const SizedBox(height: 12),
           Text(message, textAlign: TextAlign.center),
           const SizedBox(height: 12),
-          FilledButton(onPressed: onClose, child: const Text('Close')),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (onRetry != null) ...[
+                FilledButton.icon(
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                ),
+                const SizedBox(width: 12),
+              ],
+              OutlinedButton(onPressed: onClose, child: const Text('Close')),
+            ],
+          ),
         ],
       ),
     );
