@@ -1,3 +1,10 @@
+## 0.1.1
+
+* Fix consumer builds failing with a D8 record-desugaring error
+  (`Attempt to create a global synthetic for 'Record desugaring'...`) in apps
+  using the default `flutter create` Java 11 compile options. The engine AAR
+  (0.1.1) no longer contains Java records.
+
 ## 0.1.0
 
 First public release.

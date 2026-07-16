@@ -119,7 +119,7 @@ android {
 
     dependencies {
         // Prebuilt Organic Maps engine (native core + Java SDK + assets).
-        implementation("io.github.fred-apina:organicmaps-sdk:0.1.0")
+        implementation("io.github.fred-apina:organicmaps-sdk:0.1.1")
         implementation("androidx.lifecycle:lifecycle-common:2.9.4")
         implementation("androidx.core:core:1.15.0")
 

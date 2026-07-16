@@ -76,6 +76,10 @@ abstract class OfflineNavApi {
   @async
   bool requestLocationPermission();
 
+  /// The engine's bundled map-data version (e.g. "260111"). Downloads only
+  /// work while the CDN still serves this version.
+  String getDataVersion();
+
   /// Country map id covering the point, or null (e.g. open sea).
   String? resolveCountry(double latitude, double longitude);
 

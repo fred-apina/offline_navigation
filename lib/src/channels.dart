@@ -19,6 +19,9 @@ abstract final class NavChannel {
 
   static Future<bool> isInitialized() => _api.isInitialized();
 
+  /// The engine's bundled map-data version (e.g. "260111").
+  static Future<String> getDataVersion() => _api.getDataVersion();
+
   /// Bytes of base world maps (World.mwm/WorldCoasts.mwm) still missing.
   /// 0 means they are present.
   static Future<int> getBaseMapBytes() => _api.getBaseMapBytes();

@@ -399,6 +399,36 @@ class OfflineNavApi {
     }
   }
 
+  /// The engine's bundled map-data version (e.g. "260111"). Downloads only
+  /// work while the CDN still serves this version.
+  Future<String> getDataVersion() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.offline_navigation.OfflineNavApi.getDataVersion$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_sendFuture as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else if (pigeonVar_replyList[0] == null) {
+      throw PlatformException(
+        code: 'null-error',
+        message: 'Host platform returned null value for non-null return value.',
+      );
+    } else {
+      return (pigeonVar_replyList[0] as String?)!;
+    }
+  }
+
   /// Country map id covering the point, or null (e.g. open sea).
   Future<String?> resolveCountry(double latitude, double longitude) async {
     final String pigeonVar_channelName = 'dev.flutter.pigeon.offline_navigation.OfflineNavApi.resolveCountry$pigeonVar_messageChannelSuffix';

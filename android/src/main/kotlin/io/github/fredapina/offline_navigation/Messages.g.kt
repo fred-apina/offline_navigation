@@ -237,6 +237,11 @@ interface OfflineNavApi {
   fun cancelBaseMapDownload()
   fun hasLocationPermission(): Boolean
   fun requestLocationPermission(callback: (Result<Boolean>) -> Unit)
+  /**
+   * The engine's bundled map-data version (e.g. "260111"). Downloads only
+   * work while the CDN still serves this version.
+   */
+  fun getDataVersion(): String
   /** Country map id covering the point, or null (e.g. open sea). */
   fun resolveCountry(latitude: Double, longitude: Double): String?
   /** Native storage status code for the country (see MapStatus in models.dart). */
@@ -367,6 +372,21 @@ interface OfflineNavApi {
                 reply.reply(MessagesPigeonUtils.wrapResult(data))
               }
             }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.offline_navigation.OfflineNavApi.getDataVersion$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              listOf(api.getDataVersion())
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
           }
         } else {
           channel.setMessageHandler(null)

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show HttpClient;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show PlatformException;
@@ -141,12 +142,47 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
       return true;
     } on PlatformException catch (e) {
       if (e.code == 'cancelled') return false; // user cancelled; page is closing
-      _fail(e.message ?? 'Could not download the base world map', retry: _restart);
+      await _failDownload(e.message ?? 'Could not download the base world map');
       return false;
     } finally {
       _downloadSub?.cancel();
       if (mounted) setState(() => _downloadingBaseMaps = false);
     }
+  }
+
+  /// Reports a download failure, distinguishing "this build's map data has
+  /// been retired from the CDN" (permanent — needs an app update, no point
+  /// retrying) from an ordinary network failure (retryable).
+  ///
+  /// Organic Maps serves map files under a dated data version
+  /// (`.../maps/<version>/<file>`) and eventually removes old versions. A tiny
+  /// probe of a known file for this build's version tells the two cases apart:
+  /// a 404 while the CDN is reachable means the version is gone.
+  Future<void> _failDownload(String genericMessage) async {
+    String message = genericMessage;
+    VoidCallback? retry = _restart;
+    try {
+      final version = await NavChannel.getDataVersion();
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+      try {
+        final request = await client.headUrl(
+            Uri.parse('https://cdn.organicmaps.app/maps/$version/WorldCoasts.mwm'));
+        final response = await request.close();
+        await response.drain<void>();
+        if (response.statusCode == 404) {
+          message = 'The offline map data used by this version of the app is no '
+              'longer available online. Please update the app to restore map '
+              'downloads.';
+          retry = null; // retrying cannot help
+        }
+      } finally {
+        client.close(force: true);
+      }
+    } catch (_) {
+      // CDN unreachable or version lookup failed: treat as a transient
+      // network problem and keep the generic, retryable error.
+    }
+    _fail(message, retry: retry);
   }
 
   Future<void> _ensureMaps() async {
@@ -184,7 +220,7 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
   void _onDownloadEvent(MapDownloadEvent event) {
     if (!_countriesToDownload.contains(event.countryId)) return;
     if (event.status == MapStatus.failed) {
-      _fail('Map download failed for ${event.countryId}');
+      unawaited(_failDownload('Map download failed for ${event.countryId}'));
       return;
     }
     // progress == -1 is a status-only event with no byte progress; keep the last value.

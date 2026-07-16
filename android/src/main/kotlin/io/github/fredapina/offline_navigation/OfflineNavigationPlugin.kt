@@ -87,6 +87,9 @@ class OfflineNavigationPlugin :
 
   override fun cancelBaseMapDownload() = ResourceBootstrap.cancel()
 
+  override fun getDataVersion(): String =
+    java.text.SimpleDateFormat("yyMMdd", java.util.Locale.ENGLISH).format(Framework.getDataVersion())
+
   override fun resolveCountry(latitude: Double, longitude: Double): String? =
     MapManager.nativeFindCountry(latitude, longitude)
 
