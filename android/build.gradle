@@ -1,6 +1,12 @@
 group = "io.github.fredapina.offline_navigation"
 version = "1.0-SNAPSHOT"
 
+// The engine AAR this plugin release is built against. 0.2.0 adds runtime
+// registration of region maps (MapManager.nativeRegisterLocalMap). Development
+// builds can use a locally published AAR instead, e.g. in the example app's
+// gradle.properties:  offlineNavigation.sdkVersion=0.2.0-local
+def omSdkVersion = (rootProject.findProperty("offlineNavigation.sdkVersion") ?: "0.2.0")
+
 buildscript {
     ext.kotlin_version = "2.1.0"
     repositories {
@@ -119,7 +125,7 @@ android {
 
     dependencies {
         // Prebuilt Organic Maps engine (native core + Java SDK + assets).
-        implementation("io.github.fred-apina:organicmaps-sdk:0.1.1")
+        implementation("io.github.fred-apina:organicmaps-sdk:${omSdkVersion}")
         implementation("androidx.lifecycle:lifecycle-common:2.9.4")
         implementation("androidx.core:core:1.15.0")
 

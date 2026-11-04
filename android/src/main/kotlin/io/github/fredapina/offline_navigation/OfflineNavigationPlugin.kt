@@ -122,6 +122,27 @@ class OfflineNavigationPlugin :
     Framework.nativeSetViewportCenter(latitude, longitude, zoom.toInt())
   }
 
+  // ── Region maps ───────────────────────────────────────────────
+
+  override fun getRegionMapsDirectory(): String = RegionMaps.directory().path
+
+  override fun getFreeSpaceBytes(): Long = RegionMaps.freeSpaceBytes()
+
+  override fun installRegionMapFromFile(
+    id: String,
+    path: String,
+    sha256: String?,
+    moveFile: Boolean,
+    replace: Boolean,
+    callback: (Result<WireRegionMap>) -> Unit,
+  ) = RegionMaps.install(id, path, sha256, moveFile, replace, callback)
+
+  override fun removeRegionMap(id: String, callback: (Result<Unit>) -> Unit) = RegionMaps.remove(id, callback)
+
+  override fun listRegionMaps(): List<WireRegionMap> = RegionMaps.list()
+
+  override fun isRegionMapInstalled(id: String): Boolean = RegionMaps.isInstalled(id)
+
   override fun setKeepScreenOn(on: Boolean) {
     activity?.window?.let { window ->
       if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

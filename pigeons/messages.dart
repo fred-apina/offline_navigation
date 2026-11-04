@@ -53,6 +53,13 @@ class WireRouteBuildResult {
   int timeSeconds;
 }
 
+/// A regional map file installed in the engine's maps directory.
+class WireRegionMap {
+  WireRegionMap({required this.id, required this.sizeBytes});
+  String id;
+  int sizeBytes;
+}
+
 @HostApi()
 abstract class OfflineNavApi {
   /// Initializes the native map engine; completes when the framework is ready.
@@ -107,4 +114,37 @@ abstract class OfflineNavApi {
   void setViewport(double latitude, double longitude, int zoom);
 
   void setKeepScreenOn(bool on);
+
+  /// Directory region map files are installed into (created on demand).
+  /// Requires an initialized engine.
+  String getRegionMapsDirectory();
+
+  /// Free bytes on the volume holding [getRegionMapsDirectory].
+  int getFreeSpaceBytes();
+
+  /// Verifies [sha256] (when given), places the file into the maps directory
+  /// as `<id>.mwm` and registers it with the running engine. With [moveFile]
+  /// the source is moved instead of copied. With [replace] an installed map
+  /// with the same id is removed first.
+  ///
+  /// Fails with a [FlutterError] whose code is one of: `invalid_id`,
+  /// `reserved_name`, `file_not_found`, `checksum_mismatch`, `not_enough_space`,
+  /// `already_installed`, `in_use`, `bad_file`, `unsupported_format`,
+  /// `version_too_old`, `io_error`, `not_ready`.
+  @async
+  WireRegionMap installRegionMapFromFile(
+    String id,
+    String path,
+    String? sha256,
+    bool moveFile,
+    bool replace,
+  );
+
+  /// Removes an installed region map (and its file).
+  @async
+  void removeRegionMap(String id);
+
+  List<WireRegionMap> listRegionMaps();
+
+  bool isRegionMapInstalled(String id);
 }

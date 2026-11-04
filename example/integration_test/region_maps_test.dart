@@ -1,0 +1,224 @@
+// On-device test of region maps: install a map for one area, then route inside
+// it using only what is on the device.
+//
+// Serve the map file from your machine and forward the port to the device:
+//
+//   python3 -m http.server 8765 --bind 127.0.0.1 --directory <dir with the .mwm>
+//   adb reverse tcp:8765 tcp:8765
+//
+// Phase 1 needs the network (base world map + download). Phase 2 is meant to be
+// run afterwards with airplane mode on, to show that nothing else is needed:
+//
+//   flutter test integration_test/region_maps_test.dart -d <device> \
+//     --dart-define=PHASE=install   --dart-define=REGION_URL=http://localhost:8765/serengeti.mwm \
+//     --dart-define=REGION_SHA256=<hex> --dart-define=REGION_SIZE=<bytes>
+//   adb shell cmd connectivity airplane-mode enable
+//   flutter test integration_test/region_maps_test.dart -d <device> --dart-define=PHASE=navigate
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:integration_test/integration_test.dart';
+import 'package:offline_navigation/offline_navigation.dart';
+
+const _id = String.fromEnvironment('REGION_ID', defaultValue: 'serengeti');
+const _url = String.fromEnvironment('REGION_URL');
+const _sha = String.fromEnvironment('REGION_SHA256');
+const _size = int.fromEnvironment('REGION_SIZE');
+const _phase = String.fromEnvironment('PHASE', defaultValue: 'all');
+
+// For a one-run proof: after the install the test prints READY_FOR_OFFLINE and
+// waits this many seconds, during which the host turns airplane mode on. The
+// navigation tests then assert that the network is really unreachable.
+const _offlineDelaySeconds = int.fromEnvironment('OFFLINE_DELAY');
+const _requireOffline = bool.fromEnvironment('REQUIRE_OFFLINE');
+
+Future<bool> _networkReachable() async {
+  try {
+    final socket = await Socket.connect('1.1.1.1', 443, timeout: const Duration(seconds: 3));
+    socket.destroy();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+// Inside Serengeti National Park.
+const _naabiHill = NavPoint(latitude: -2.8331, longitude: 34.9979, name: 'Naabi Hill');
+const _seronera = NavPoint(latitude: -2.4467, longitude: 34.8191, name: 'Seronera');
+// Dodoma: far outside the region map.
+const _dodoma = NavPoint(latitude: -6.1722, longitude: 35.7395, name: 'Dodoma');
+const _udom = NavPoint(latitude: -6.1841, longitude: 35.9297, name: 'UDOM');
+
+void main() {
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  group('install', () {
+    testWidgets('downloads, verifies and installs a region map', (tester) async {
+      expect(_url, isNotEmpty, reason: 'pass --dart-define=REGION_URL=...');
+      expect(_sha, isNotEmpty, reason: 'pass --dart-define=REGION_SHA256=...');
+
+      await OfflineNavigation.initialize();
+      debugPrint('engine data version: ${await OfflineNavigation.engineDataVersion}');
+
+      await OfflineNavigation.ensureBaseMaps();
+      expect(await OfflineNavigation.baseMapsBytesMissing, 0);
+
+      await OfflineNavigation.removeRegionMap(_id);
+      expect(await OfflineNavigation.isRegionMapInstalled(_id), isFalse);
+
+      final progress = <double?>[];
+      final info = await OfflineNavigation.installRegionMap(
+        RegionMapSource(
+          id: _id,
+          url: Uri.parse(_url),
+          sha256: _sha,
+          sizeBytes: _size > 0 ? _size : null,
+        ),
+        onProgress: (p) => progress.add(p.fraction),
+      );
+      debugPrint('installed: $info');
+      expect(info.id, _id);
+      if (_size > 0) expect(info.sizeBytes, _size);
+      expect(progress, isNotEmpty);
+      expect(await OfflineNavigation.isRegionMapInstalled(_id), isTrue);
+      expect(await OfflineNavigation.listRegionMaps(), contains(info));
+
+      if (_offlineDelaySeconds > 0) {
+        debugPrint('READY_FOR_OFFLINE');
+        await Future<void>.delayed(const Duration(seconds: _offlineDelaySeconds));
+      }
+    }, skip: _phase == 'navigate');
+
+    testWidgets('refuses bad requests without touching installed maps', (tester) async {
+      await OfflineNavigation.initialize();
+      final before = await OfflineNavigation.listRegionMaps();
+
+      Future<MapInstallError?> errorOf(Future<void> Function() action) async {
+        try {
+          await action();
+        } on MapInstallException catch (e) {
+          return e.error;
+        }
+        return null;
+      }
+
+      final source = RegionMapSource(id: _id, url: Uri.parse(_url), sha256: _sha, sizeBytes: _size);
+      expect(await errorOf(() => OfflineNavigation.installRegionMap(source)),
+          MapInstallError.alreadyInstalled);
+      expect(await errorOf(() => OfflineNavigation.installRegionMap(
+                RegionMapSource(id: '../x', url: Uri.parse(_url), sha256: _sha))),
+          MapInstallError.invalidId);
+      expect(await errorOf(() => OfflineNavigation.installRegionMapFromFile('World', '/nonexistent')),
+          MapInstallError.reservedName);
+      expect(await errorOf(() => OfflineNavigation.installRegionMapFromFile('Tanzania', '/nonexistent')),
+          anyOf(MapInstallError.reservedName, MapInstallError.fileNotFound));
+      expect(await errorOf(() => OfflineNavigation.installRegionMapFromFile('ghost', '/nonexistent')),
+          MapInstallError.fileNotFound);
+
+      // A wrong checksum must be rejected and must leave nothing behind.
+      expect(
+          await errorOf(() => OfflineNavigation.installRegionMap(RegionMapSource(
+              id: 'wronghash',
+              url: Uri.parse(_url),
+              sha256: '0' * 64,
+              sizeBytes: _size > 0 ? _size : null))),
+          MapInstallError.checksumMismatch);
+      expect(await OfflineNavigation.isRegionMapInstalled('wronghash'), isFalse);
+
+      expect(await OfflineNavigation.listRegionMaps(), before);
+    }, skip: _phase == 'navigate');
+  });
+
+  group('navigate', () {
+    testWidgets('the device has no network when it is required to be offline', (tester) async {
+      expect(await _networkReachable(), isFalse, reason: 'the proof is only valid offline');
+    }, skip: !_requireOffline);
+
+    Future<NavigationResult?> runPage(
+      WidgetTester tester,
+      NavPoint start,
+      NavPoint destination, {
+      required bool Function() stop,
+      Future<void> Function()? onPreview,
+    }) async {
+      final done = Completer<NavigationResult?>();
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () async {
+                  final result = await Navigator.of(context).push<NavigationResult>(
+                    MaterialPageRoute(
+                      builder: (_) => OfflineNavigationPage(
+                        start: start,
+                        destination: destination,
+                        options: const NavOptions(
+                          mapPolicy: MapPolicy.installedOnly,
+                          simulateRoute: true,
+                          voiceGuidance: false,
+                        ),
+                      ),
+                    ),
+                  );
+                  done.complete(result);
+                },
+                child: const Text('go'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('go'));
+
+      // pumpAndSettle would never return: the page shows spinners and a map.
+      for (var i = 0; i < 1200 && !done.isCompleted && !stop(); i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      debugPrint('page shows: ${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).whereType<String>().join(' | ')}');
+      if (onPreview != null && !done.isCompleted) await onPreview();
+      return done.isCompleted ? done.future : null;
+    }
+
+    testWidgets('routes inside the installed region with no network', (tester) async {
+      await OfflineNavigation.initialize();
+      expect(await OfflineNavigation.isRegionMapInstalled(_id), isTrue,
+          reason: 'run the install phase first');
+
+      String? distance;
+      final result = await runPage(
+        tester,
+        _naabiHill,
+        _seronera,
+        stop: () => find.text('Start navigation').evaluate().isNotEmpty,
+        onPreview: () async {
+          expect(find.text('Start navigation'), findsOneWidget);
+          distance = tester
+              .widgetList<Text>(find.byType(Text))
+              .map((t) => t.data)
+              .whereType<String>()
+              .join(' | ');
+          debugPrint('route preview: $distance');
+          await tester.tap(find.byIcon(Icons.close));
+          await tester.pump(const Duration(seconds: 1));
+        },
+      );
+      expect(distance, isNotNull, reason: 'no route preview; page result: $result');
+      expect(RegExp(r'\d+([.,]\d+)? ?(km|m)\b').hasMatch(distance!), isTrue,
+          reason: 'the preview should show a distance: $distance');
+      expect(result?.outcome, NavigationOutcome.cancelledByUser);
+    });
+
+    testWidgets('reports missing maps instead of downloading outside the region', (tester) async {
+      await OfflineNavigation.initialize();
+      final result = await runPage(tester, _dodoma, _udom, stop: () => false);
+      debugPrint('outside the region: $result missing=${result?.missingMaps}');
+      expect(result, isNotNull, reason: 'the page must pop by itself');
+      expect(result!.outcome, NavigationOutcome.failed);
+      expect(result.failure, NavigationFailure.mapsMissing);
+      expect(result.missingMaps, isNotEmpty);
+    });
+  });
+}
