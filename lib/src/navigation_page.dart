@@ -15,6 +15,11 @@ import 'turn_icons.dart';
 /// required country map (if missing), building the route, showing a preview,
 /// then guiding — and pops with a [NavigationResult] when finished.
 ///
+/// By default missing maps are downloaded as needed. To guarantee that the
+/// page never uses the network, prepare the maps ahead of time (see
+/// [OfflineNavigation.installRegionMap]) and pass
+/// `NavOptions(mapPolicy: MapPolicy.installedOnly)`.
+///
 /// ```dart
 /// final result = await Navigator.push<NavigationResult>(
 ///   context,
@@ -55,6 +60,7 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
   bool _downloadingBaseMaps = false;
   StreamSubscription<MapDownloadEvent>? _downloadSub;
   VoidCallback? _errorRetry;
+  NavigationFailure? _errorFailure;
 
   // Route/guidance state.
   RouteSummary? _summary;
@@ -97,11 +103,18 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
       await NavChannel.initialize();
       setState(() => _mapReady = true);
       if (!await _ensureBaseMaps()) return;
-      await _ensureMaps();
+      if (_installedOnly) {
+        // No country lookup and no downloads: route with what is on the device.
+        await _buildRoute();
+      } else {
+        await _ensureMaps();
+      }
     } catch (e) {
-      _fail('Could not start navigation: $e', retry: _restart);
+      _fail('Could not start navigation: $e', retry: _restart, failure: NavigationFailure.engineError);
     }
   }
+
+  bool get _installedOnly => widget.options.mapPolicy == MapPolicy.installedOnly;
 
   /// Re-runs the whole bootstrap after a failure. Every step is idempotent:
   /// engine init resolves immediately once ready, and downloads skip
@@ -111,6 +124,7 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
       _phase = _Phase.initializing;
       _errorMessage = null;
       _errorRetry = null;
+      _errorFailure = null;
     });
     _bootstrap();
   }
@@ -124,6 +138,15 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
     _setStatus('Checking base world map…');
     final missingBytes = await NavChannel.getBaseMapBytes();
     if (missingBytes <= 0) return true;
+
+    if (_installedOnly) {
+      _close(const NavigationResult.failed(
+        'The base world map is not installed. Call OfflineNavigation.ensureBaseMaps() first.',
+        failure: NavigationFailure.mapsMissing,
+        missingMaps: [NavChannel.baseMapId],
+      ));
+      return false;
+    }
 
     setState(() {
       _phase = _Phase.downloading;
@@ -182,7 +205,7 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
       // CDN unreachable or version lookup failed: treat as a transient
       // network problem and keep the generic, retryable error.
     }
-    _fail(message, retry: retry);
+    _fail(message, retry: retry, failure: NavigationFailure.downloadFailed);
   }
 
   Future<void> _ensureMaps() async {
@@ -275,6 +298,15 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
 
     if (!result.ok) {
       if (result.cancelled) return; // the page is closing
+      if (result.missingMaps.isNotEmpty && _installedOnly) {
+        // Never download: hand the decision to the host app.
+        _close(NavigationResult.failed(
+          'The installed maps do not cover this route.',
+          failure: NavigationFailure.mapsMissing,
+          missingMaps: List.unmodifiable(result.missingMaps),
+        ));
+        return;
+      }
       if (result.missingMaps.isNotEmpty) {
         // The route crosses regions we don't have yet — download them and retry.
         _countriesToDownload
@@ -283,7 +315,8 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
         await _startDownload();
         return;
       }
-      _fail('Could not build a route (error ${result.errorCode})', retry: _restart);
+      _fail('Could not build a route (error ${result.errorCode})',
+          retry: _restart, failure: NavigationFailure.noRoute);
       return;
     }
 
@@ -358,12 +391,13 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
 
   void _setStatus(String text) => setState(() => _statusText = text);
 
-  void _fail(String message, {VoidCallback? retry}) {
+  void _fail(String message, {VoidCallback? retry, NavigationFailure failure = NavigationFailure.other}) {
     if (!mounted) return;
     setState(() {
       _phase = _Phase.error;
       _errorMessage = message;
       _errorRetry = retry;
+      _errorFailure = failure;
     });
   }
 
@@ -455,7 +489,10 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
         return _ErrorPanel(
           message: _errorMessage ?? 'Something went wrong',
           onRetry: _errorRetry,
-          onClose: () => _close(NavigationResult(NavigationOutcome.failed, _errorMessage)),
+          onClose: () => _close(NavigationResult.failed(
+            _errorMessage,
+            failure: _errorFailure ?? NavigationFailure.other,
+          )),
         );
     }
   }

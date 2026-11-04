@@ -163,6 +163,53 @@ class WireRouteBuildResult {
 ;
 }
 
+/// A regional map file installed in the engine's maps directory.
+class WireRegionMap {
+  WireRegionMap({
+    required this.id,
+    required this.sizeBytes,
+  });
+
+  String id;
+
+  int sizeBytes;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      id,
+      sizeBytes,
+    ];
+  }
+
+  Object encode() {
+    return _toList();  }
+
+  static WireRegionMap decode(Object result) {
+    result as List<Object?>;
+    return WireRegionMap(
+      id: result[0]! as String,
+      sizeBytes: result[1]! as int,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! WireRegionMap || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(encode(), other.encode());
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => Object.hashAll(_toList())
+;
+}
+
 
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
@@ -180,6 +227,9 @@ class _PigeonCodec extends StandardMessageCodec {
     }    else if (value is WireRouteBuildResult) {
       buffer.putUint8(131);
       writeValue(buffer, value.encode());
+    }    else if (value is WireRegionMap) {
+      buffer.putUint8(132);
+      writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
     }
@@ -195,6 +245,8 @@ class _PigeonCodec extends StandardMessageCodec {
         return WirePoint.decode(readValue(buffer)!);
       case 131: 
         return WireRouteBuildResult.decode(readValue(buffer)!);
+      case 132: 
+        return WireRegionMap.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
     }
@@ -668,6 +720,182 @@ class OfflineNavApi {
       );
     } else {
       return;
+    }
+  }
+
+  /// Directory region map files are installed into (created on demand).
+  /// Requires an initialized engine.
+  Future<String> getRegionMapsDirectory() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.offline_navigation.OfflineNavApi.getRegionMapsDirectory$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_sendFuture as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else if (pigeonVar_replyList[0] == null) {
+      throw PlatformException(
+        code: 'null-error',
+        message: 'Host platform returned null value for non-null return value.',
+      );
+    } else {
+      return (pigeonVar_replyList[0] as String?)!;
+    }
+  }
+
+  /// Free bytes on the volume holding [getRegionMapsDirectory].
+  Future<int> getFreeSpaceBytes() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.offline_navigation.OfflineNavApi.getFreeSpaceBytes$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_sendFuture as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else if (pigeonVar_replyList[0] == null) {
+      throw PlatformException(
+        code: 'null-error',
+        message: 'Host platform returned null value for non-null return value.',
+      );
+    } else {
+      return (pigeonVar_replyList[0] as int?)!;
+    }
+  }
+
+  /// Verifies [sha256] (when given), places the file into the maps directory
+  /// as `<id>.mwm` and registers it with the running engine. With [moveFile]
+  /// the source is moved instead of copied. With [replace] an installed map
+  /// with the same id is removed first.
+  ///
+  /// Fails with a [FlutterError] whose code is one of: `invalid_id`,
+  /// `reserved_name`, `file_not_found`, `checksum_mismatch`, `not_enough_space`,
+  /// `already_installed`, `in_use`, `bad_file`, `unsupported_format`,
+  /// `version_too_old`, `io_error`, `not_ready`.
+  Future<WireRegionMap> installRegionMapFromFile(String id, String path, String? sha256, bool moveFile, bool replace) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.offline_navigation.OfflineNavApi.installRegionMapFromFile$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[id, path, sha256, moveFile, replace]);
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_sendFuture as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else if (pigeonVar_replyList[0] == null) {
+      throw PlatformException(
+        code: 'null-error',
+        message: 'Host platform returned null value for non-null return value.',
+      );
+    } else {
+      return (pigeonVar_replyList[0] as WireRegionMap?)!;
+    }
+  }
+
+  /// Removes an installed region map (and its file).
+  Future<void> removeRegionMap(String id) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.offline_navigation.OfflineNavApi.removeRegionMap$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[id]);
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_sendFuture as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  Future<List<WireRegionMap>> listRegionMaps() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.offline_navigation.OfflineNavApi.listRegionMaps$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_sendFuture as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else if (pigeonVar_replyList[0] == null) {
+      throw PlatformException(
+        code: 'null-error',
+        message: 'Host platform returned null value for non-null return value.',
+      );
+    } else {
+      return (pigeonVar_replyList[0] as List<Object?>?)!.cast<WireRegionMap>();
+    }
+  }
+
+  Future<bool> isRegionMapInstalled(String id) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.offline_navigation.OfflineNavApi.isRegionMapInstalled$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[id]);
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_sendFuture as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else if (pigeonVar_replyList[0] == null) {
+      throw PlatformException(
+        code: 'null-error',
+        message: 'Host platform returned null value for non-null return value.',
+      );
+    } else {
+      return (pigeonVar_replyList[0] as bool?)!;
     }
   }
 }

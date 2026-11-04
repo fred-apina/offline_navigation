@@ -31,7 +31,19 @@ export 'src/models.dart'
         NavPoint,
         TravelMode,
         NavOptions,
+        MapPolicy,
         NavigationOutcome,
+        NavigationFailure,
         NavigationResult,
         RouteSummary;
+export 'src/region_map_download.dart' show HttpClientFactory;
+export 'src/region_maps.dart'
+    show
+        RegionMapSource,
+        RegionMapInfo,
+        MapInstallProgress,
+        MapInstallCancelToken,
+        MapInstallException,
+        MapInstallError,
+        isValidRegionMapId;
 export 'src/navigation_page.dart' show OfflineNavigationPage;

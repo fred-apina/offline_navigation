@@ -23,12 +23,32 @@ class NavPoint {
 /// How the route is traveled.
 enum TravelMode { drive, walk, cycle }
 
+/// Where [OfflineNavigationPage] gets its map data from.
+enum MapPolicy {
+  /// Default. If the maps for the route are missing, the page downloads the
+  /// map of the country the route is in (and the base world map on first run),
+  /// showing a progress screen.
+  autoDownloadCountry,
+
+  /// Never use the network for map data. The page routes only with maps that
+  /// are already on the device: the base world map and the maps installed with
+  /// [OfflineNavigation.installRegionMap] or by an earlier country download.
+  ///
+  /// If something the route needs is missing, the page pops immediately with
+  /// [NavigationOutcome.failed], [NavigationFailure.mapsMissing] and the list
+  /// of missing map ids in [NavigationResult.missingMaps] — your app decides
+  /// what to offer the user. Use this when maps are prepared ahead of time,
+  /// for example in a "download for offline use" step.
+  installedOnly,
+}
+
 /// Optional behavior tweaks for [OfflineNavigationPage].
 @immutable
 class NavOptions {
   const NavOptions({
     this.voiceGuidance = true,
     this.simulateRoute = false,
+    this.mapPolicy = MapPolicy.autoDownloadCountry,
   });
 
   /// Speak turn-by-turn instructions using the device's text-to-speech engine.
@@ -37,21 +57,63 @@ class NavOptions {
   /// Demo/testing mode: moves the position marker along the route
   /// automatically instead of following the device's real GPS location.
   final bool simulateRoute;
+
+  /// Whether the page may download map data. See [MapPolicy].
+  final MapPolicy mapPolicy;
 }
 
 /// Why the navigation page was closed.
 enum NavigationOutcome { arrived, cancelledByUser, failed }
 
+/// What went wrong when [NavigationResult.outcome] is
+/// [NavigationOutcome.failed].
+enum NavigationFailure {
+  /// Map data the route needs is not on the device. [NavigationResult.missingMaps]
+  /// lists the ids the engine asked for. With [MapPolicy.installedOnly] this
+  /// also means "the installed maps do not cover this route".
+  mapsMissing,
+
+  /// Downloading map data failed (only with [MapPolicy.autoDownloadCountry]).
+  downloadFailed,
+
+  /// The maps are present but no route could be built between the points.
+  noRoute,
+
+  /// The map engine could not start.
+  engineError,
+
+  /// Anything else; see [NavigationResult.message].
+  other,
+}
+
 /// Returned by [OfflineNavigationPage] when it pops.
 @immutable
 class NavigationResult {
-  const NavigationResult(this.outcome, [this.message]);
+  const NavigationResult(this.outcome, [this.message])
+      : failure = null,
+        missingMaps = const [];
+
+  /// A failed navigation with a machine-readable [failure].
+  const NavigationResult.failed(
+    this.message, {
+    this.failure = NavigationFailure.other,
+    this.missingMaps = const [],
+  }) : outcome = NavigationOutcome.failed;
 
   final NavigationOutcome outcome;
+
+  /// Human-readable detail for a failure; not localized.
   final String? message;
 
+  /// Set when [outcome] is [NavigationOutcome.failed] and the cause is known.
+  final NavigationFailure? failure;
+
+  /// Ids of the maps that were missing, for [NavigationFailure.mapsMissing].
+  final List<String> missingMaps;
+
   @override
-  String toString() => 'NavigationResult(${outcome.name}${message == null ? '' : ': $message'})';
+  String toString() =>
+      'NavigationResult(${outcome.name}${failure == null ? '' : ', ${failure!.name}'}${message == null ? '' : ': $message'})';
 }
 
 /// Summary of a successfully built route.

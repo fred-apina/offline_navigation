@@ -78,6 +78,27 @@ abstract final class NavChannel {
 
   static Future<void> setKeepScreenOn(bool on) => _api.setKeepScreenOn(on);
 
+  // ── Region maps ──────────────────────────────────────────────
+
+  static Future<String> getRegionMapsDirectory() => _api.getRegionMapsDirectory();
+
+  static Future<int> getFreeSpaceBytes() => _api.getFreeSpaceBytes();
+
+  static Future<WireRegionMap> installRegionMapFromFile({
+    required String id,
+    required String path,
+    required String? sha256,
+    required bool moveFile,
+    required bool replace,
+  }) =>
+      _api.installRegionMapFromFile(id, path, sha256, moveFile, replace);
+
+  static Future<void> removeRegionMap(String id) => _api.removeRegionMap(id);
+
+  static Future<List<WireRegionMap>> listRegionMaps() => _api.listRegionMaps();
+
+  static Future<bool> isRegionMapInstalled(String id) => _api.isRegionMapInstalled(id);
+
   static Stream<MapDownloadEvent> downloadEvents() => _downloads
       .receiveBroadcastStream()
       .map((event) => MapDownloadEvent.fromMap(event as Map<dynamic, dynamic>));

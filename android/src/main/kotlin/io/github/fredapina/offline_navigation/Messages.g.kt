@@ -181,6 +181,41 @@ data class WireRouteBuildResult (
 
   override fun hashCode(): Int = toList().hashCode()
 }
+
+/**
+ * A regional map file installed in the engine's maps directory.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class WireRegionMap (
+  val id: String,
+  val sizeBytes: Long
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): WireRegionMap {
+      val id = pigeonVar_list[0] as String
+      val sizeBytes = pigeonVar_list[1] as Long
+      return WireRegionMap(id, sizeBytes)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      id,
+      sizeBytes,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other !is WireRegionMap) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    return MessagesPigeonUtils.deepEquals(toList(), other.toList())  }
+
+  override fun hashCode(): Int = toList().hashCode()
+}
 private open class MessagesPigeonCodec : StandardMessageCodec() {
   override fun readValueOfType(type: Byte, buffer: ByteBuffer): Any? {
     return when (type) {
@@ -199,6 +234,11 @@ private open class MessagesPigeonCodec : StandardMessageCodec() {
           WireRouteBuildResult.fromList(it)
         }
       }
+      132.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          WireRegionMap.fromList(it)
+        }
+      }
       else -> super.readValueOfType(type, buffer)
     }
   }
@@ -214,6 +254,10 @@ private open class MessagesPigeonCodec : StandardMessageCodec() {
       }
       is WireRouteBuildResult -> {
         stream.write(131)
+        writeValue(stream, value.toList())
+      }
+      is WireRegionMap -> {
+        stream.write(132)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -254,6 +298,29 @@ interface OfflineNavApi {
   fun closeRouting()
   fun setViewport(latitude: Double, longitude: Double, zoom: Long)
   fun setKeepScreenOn(on: Boolean)
+  /**
+   * Directory region map files are installed into (created on demand).
+   * Requires an initialized engine.
+   */
+  fun getRegionMapsDirectory(): String
+  /** Free bytes on the volume holding [getRegionMapsDirectory]. */
+  fun getFreeSpaceBytes(): Long
+  /**
+   * Verifies [sha256] (when given), places the file into the maps directory
+   * as `<id>.mwm` and registers it with the running engine. With [moveFile]
+   * the source is moved instead of copied. With [replace] an installed map
+   * with the same id is removed first.
+   *
+   * Fails with a [FlutterError] whose code is one of: `invalid_id`,
+   * `reserved_name`, `file_not_found`, `checksum_mismatch`, `not_enough_space`,
+   * `already_installed`, `in_use`, `bad_file`, `unsupported_format`,
+   * `version_too_old`, `io_error`, `not_ready`.
+   */
+  fun installRegionMapFromFile(id: String, path: String, sha256: String?, moveFile: Boolean, replace: Boolean, callback: (Result<WireRegionMap>) -> Unit)
+  /** Removes an installed region map (and its file). */
+  fun removeRegionMap(id: String, callback: (Result<Unit>) -> Unit)
+  fun listRegionMaps(): List<WireRegionMap>
+  fun isRegionMapInstalled(id: String): Boolean
 
   companion object {
     /** The codec used by OfflineNavApi. */
@@ -566,6 +633,111 @@ interface OfflineNavApi {
             val wrapped: List<Any?> = try {
               api.setKeepScreenOn(onArg)
               listOf(null)
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.offline_navigation.OfflineNavApi.getRegionMapsDirectory$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              listOf(api.getRegionMapsDirectory())
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.offline_navigation.OfflineNavApi.getFreeSpaceBytes$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              listOf(api.getFreeSpaceBytes())
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.offline_navigation.OfflineNavApi.installRegionMapFromFile$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val idArg = args[0] as String
+            val pathArg = args[1] as String
+            val sha256Arg = args[2] as String?
+            val moveFileArg = args[3] as Boolean
+            val replaceArg = args[4] as Boolean
+            api.installRegionMapFromFile(idArg, pathArg, sha256Arg, moveFileArg, replaceArg) { result: Result<WireRegionMap> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(MessagesPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(MessagesPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.offline_navigation.OfflineNavApi.removeRegionMap$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val idArg = args[0] as String
+            api.removeRegionMap(idArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(MessagesPigeonUtils.wrapError(error))
+              } else {
+                reply.reply(MessagesPigeonUtils.wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.offline_navigation.OfflineNavApi.listRegionMaps$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              listOf(api.listRegionMaps())
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.offline_navigation.OfflineNavApi.isRegionMapInstalled$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val idArg = args[0] as String
+            val wrapped: List<Any?> = try {
+              listOf(api.isRegionMapInstalled(idArg))
             } catch (exception: Throwable) {
               MessagesPigeonUtils.wrapError(exception)
             }
