@@ -31,8 +31,11 @@ enum MapPolicy {
   autoDownloadCountry,
 
   /// Never use the network for map data. The page routes only with maps that
-  /// are already on the device: the base world map and the maps installed with
+  /// are already on the device: the maps installed with
   /// [OfflineNavigation.installRegionMap] or by an earlier country download.
+  /// It needs no base world map (72 MB): the map is drawn from the installed
+  /// maps and is blank outside them, so use this for navigation that stays
+  /// inside them.
   ///
   /// If something the route needs is missing, the page pops immediately with
   /// [NavigationOutcome.failed], [NavigationFailure.mapsMissing] and the list

@@ -18,7 +18,8 @@ import 'turn_icons.dart';
 /// By default missing maps are downloaded as needed. To guarantee that the
 /// page never uses the network, prepare the maps ahead of time (see
 /// [OfflineNavigation.installRegionMap]) and pass
-/// `NavOptions(mapPolicy: MapPolicy.installedOnly)`.
+/// `NavOptions(mapPolicy: MapPolicy.installedOnly)`. That mode needs no base
+/// world map either.
 ///
 /// ```dart
 /// final result = await Navigator.push<NavigationResult>(
@@ -131,22 +132,18 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
 
   // ── Map data ────────────────────────────────────────────────
 
-  /// Downloads World.mwm/WorldCoasts.mwm on first run. Without them the map
-  /// is blank outside downloaded countries. Returns false if the flow should
+  /// Downloads World.mwm/WorldCoasts.mwm (72 MB) on first run. Without them the
+  /// map is blank outside downloaded areas. Returns false if the flow should
   /// stop (failure or cancellation).
+  ///
+  /// With [MapPolicy.installedOnly] they are not needed: the page only routes
+  /// inside maps that are already installed, so it neither requires nor
+  /// downloads them. They are used when they happen to be present.
   Future<bool> _ensureBaseMaps() async {
+    if (_installedOnly) return true;
     _setStatus('Checking base world map…');
     final missingBytes = await NavChannel.getBaseMapBytes();
     if (missingBytes <= 0) return true;
-
-    if (_installedOnly) {
-      _close(const NavigationResult.failed(
-        'The base world map is not installed. Call OfflineNavigation.ensureBaseMaps() first.',
-        failure: NavigationFailure.mapsMissing,
-        missingMaps: [NavChannel.baseMapId],
-      ));
-      return false;
-    }
 
     setState(() {
       _phase = _Phase.downloading;
