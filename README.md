@@ -85,8 +85,7 @@ you can prepare a much smaller map of just the area you need — a national park
 a city, a campus — **ahead of time**, and navigate there with no network at all.
 
 ```dart
-// 1. Before the trip, with internet. Both steps resume if interrupted.
-await OfflineNavigation.ensureBaseMaps();            // small, once per install
+// 1. Before the trip, with internet. Resumes if interrupted.
 await OfflineNavigation.installRegionMap(
   RegionMapSource(
     id: 'serengeti',
@@ -117,9 +116,15 @@ if (result?.failure == NavigationFailure.mapsMissing) {
   engine; no app restart is needed, and it is found again on every later start.
 * **`MapPolicy.installedOnly`** guarantees the page never uses the network. If
   something the route needs is missing, the page closes at once with
-  `NavigationFailure.mapsMissing` and the ids in `NavigationResult.missingMaps`
-  (`OfflineNavigation.baseMapsId` for the base world map), so your app decides
-  what to offer. The default, `MapPolicy.autoDownloadCountry`, behaves as in 0.1.x.
+  `NavigationFailure.mapsMissing` and the ids in `NavigationResult.missingMaps`,
+  so your app decides what to offer. The default,
+  `MapPolicy.autoDownloadCountry`, behaves as in 0.1.x.
+* **No base world map needed (0.2.1).** With `installedOnly` the page neither
+  requires nor downloads the base world map (`World.mwm` and `WorldCoasts.mwm`,
+  72 MB together). The map is drawn from the region you installed and is blank
+  outside it, so use this for navigation that stays inside the region. To draw
+  the world around it as well, call `OfflineNavigation.ensureBaseMaps()` once
+  while online.
 * **Your own downloader?** Hand the finished file to
   `OfflineNavigation.installRegionMapFromFile(id, path, sha256: ..., moveFile: true)`.
 * **Manage maps** with `listRegionMaps()`, `isRegionMapInstalled(id)` and

@@ -1,3 +1,15 @@
+## 0.2.1
+
+* `MapPolicy.installedOnly` no longer needs the base world map (`World.mwm` and
+  `WorldCoasts.mwm`, 72 MB). In 0.2.0 the page ended with
+  `NavigationFailure.mapsMissing` and `OfflineNavigation.baseMapsId` when it
+  was absent, so an app that only wants to navigate inside a region it has
+  already installed had to download 72 MB first. Now it routes and guides with
+  the installed region alone; the map is blank outside it. A route that leaves
+  the installed maps still ends with `mapsMissing`, as before. The default
+  policy, `autoDownloadCountry`, is unchanged.
+* Docs: the base maps are 72 MB, not "a few MB".
+
 ## 0.2.0
 
 Region maps: navigate in places with no internet using a small map of just the

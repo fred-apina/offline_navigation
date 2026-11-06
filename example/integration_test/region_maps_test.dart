@@ -34,6 +34,15 @@ const _phase = String.fromEnvironment('PHASE', defaultValue: 'all');
 const _offlineDelaySeconds = int.fromEnvironment('OFFLINE_DELAY');
 const _requireOffline = bool.fromEnvironment('REQUIRE_OFFLINE');
 
+// Run without ever fetching the base world map (World.mwm/WorldCoasts.mwm,
+// 72 MB): the park-only case. Every assertion below must still hold.
+const _skipBaseMaps = bool.fromEnvironment('SKIP_BASE_MAPS');
+
+// Seconds to stand still on the route preview and on the guidance screen, so
+// the host can take a screenshot (it waits for the PREVIEW_READY and
+// GUIDANCE_STARTED lines).
+const _holdSeconds = int.fromEnvironment('HOLD_SECONDS');
+
 Future<bool> _networkReachable() async {
   try {
     final socket = await Socket.connect('1.1.1.1', 443, timeout: const Duration(seconds: 3));
@@ -62,8 +71,13 @@ void main() {
       await OfflineNavigation.initialize();
       debugPrint('engine data version: ${await OfflineNavigation.engineDataVersion}');
 
-      await OfflineNavigation.ensureBaseMaps();
-      expect(await OfflineNavigation.baseMapsBytesMissing, 0);
+      if (_skipBaseMaps) {
+        expect(await OfflineNavigation.baseMapsBytesMissing, greaterThan(0),
+            reason: 'this run has to start without the base world map');
+      } else {
+        await OfflineNavigation.ensureBaseMaps();
+        expect(await OfflineNavigation.baseMapsBytesMissing, 0);
+      }
 
       await OfflineNavigation.removeRegionMap(_id);
       expect(await OfflineNavigation.isRegionMapInstalled(_id), isFalse);
@@ -209,6 +223,53 @@ void main() {
       expect(RegExp(r'\d+([.,]\d+)? ?(km|m)\b').hasMatch(distance!), isTrue,
           reason: 'the preview should show a distance: $distance');
       expect(result?.outcome, NavigationOutcome.cancelledByUser);
+      if (_skipBaseMaps) {
+        expect(await OfflineNavigation.baseMapsBytesMissing, greaterThan(0),
+            reason: 'installedOnly must not fetch the base world map');
+      }
+    });
+
+    testWidgets('starts turn-by-turn guidance inside the installed region', (tester) async {
+      await OfflineNavigation.initialize();
+      expect(await OfflineNavigation.isRegionMapInstalled(_id), isTrue,
+          reason: 'run the install phase first');
+
+      String? guidance;
+      final result = await runPage(
+        tester,
+        _naabiHill,
+        _seronera,
+        stop: () => find.text('Start navigation').evaluate().isNotEmpty,
+        onPreview: () async {
+          debugPrint('PREVIEW_READY');
+          await tester.pump(const Duration(seconds: _holdSeconds));
+          await tester.tap(find.text('Start navigation'));
+          // Guidance is running once the preview is gone and the End button is up.
+          for (var i = 0; i < 200 && find.text('End').evaluate().isEmpty; i++) {
+            await tester.pump(const Duration(milliseconds: 100));
+          }
+          // Let the simulated drive move for a while.
+          await tester.pump(const Duration(seconds: 15));
+          guidance = tester
+              .widgetList<Text>(find.byType(Text))
+              .map((t) => t.data)
+              .whereType<String>()
+              .join(' | ');
+          debugPrint('guidance: $guidance');
+          debugPrint('GUIDANCE_STARTED');
+          await tester.pump(const Duration(seconds: _holdSeconds));
+          expect(find.text('End'), findsOneWidget);
+          await tester.tap(find.text('End'));
+          await tester.pump(const Duration(seconds: 1));
+        },
+      );
+      expect(guidance, isNotNull, reason: 'no route preview; page result: $result');
+      expect(guidance!, contains('End'));
+      expect(guidance!, isNot(contains('Start navigation')));
+      expect(result?.outcome, NavigationOutcome.cancelledByUser);
+      if (_skipBaseMaps) {
+        expect(await OfflineNavigation.baseMapsBytesMissing, greaterThan(0));
+      }
     });
 
     testWidgets('reports missing maps instead of downloading outside the region', (tester) async {

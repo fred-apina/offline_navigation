@@ -19,7 +19,6 @@ import 'region_maps.dart';
 /// To navigate where there is no internet, install the maps beforehand:
 ///
 /// ```dart
-/// await OfflineNavigation.ensureBaseMaps();            // small, once per install
 /// await OfflineNavigation.installRegionMap(RegionMapSource(
 ///   id: 'serengeti',
 ///   url: Uri.parse('https://example.com/maps/serengeti.mwm'),
@@ -29,13 +28,16 @@ import 'region_maps.dart';
 /// ```
 ///
 /// and open the page with `NavOptions(mapPolicy: MapPolicy.installedOnly)`.
+/// That needs no base world map; see [ensureBaseMaps] if you want one.
 /// If your app downloads files itself, hand the finished file to
 /// [installRegionMapFromFile] instead.
 class OfflineNavigation {
   OfflineNavigation._();
 
-  /// Pseudo map id reported in [NavigationResult.missingMaps] when the base
-  /// world map is missing.
+  /// Pseudo id of the base world map on the downloads stream. Up to 0.2.0,
+  /// [MapPolicy.installedOnly] also reported it in
+  /// [NavigationResult.missingMaps] when the base world map was missing; it no
+  /// longer needs the base world map, so it no longer does.
   static const String baseMapsId = NavChannel.baseMapId;
 
   /// Initializes the native map engine.
@@ -61,8 +63,10 @@ class OfflineNavigation {
 
   /// Bytes of the base world maps that are still missing; 0 when present.
   ///
-  /// The base maps (a few MB) are needed once per install, also for region
-  /// maps: they draw everything outside the region.
+  /// The base maps (`World.mwm` and `WorldCoasts.mwm`) are 72 MB together. They
+  /// draw the world outside the maps you installed. The default
+  /// [MapPolicy.autoDownloadCountry] fetches them on first use;
+  /// [MapPolicy.installedOnly] does not need them.
   static Future<int> get baseMapsBytesMissing async {
     await initialize();
     return NavChannel.getBaseMapBytes();
