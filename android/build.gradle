@@ -92,7 +92,7 @@ apply plugin: "kotlin-android"
 android {
     namespace = "io.github.fredapina.offline_navigation"
 
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = "29.0.14206865"
 
     compileOptions {
@@ -111,6 +111,8 @@ android {
 
     defaultConfig {
         minSdk = 21
+        // Keep rules the engine's JNI lookups need in consumers' release builds.
+        consumerProguardFiles "consumer-rules.pro"
     }
 
     lint {

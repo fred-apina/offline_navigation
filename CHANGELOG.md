@@ -22,6 +22,13 @@ nothing behave exactly as in 0.1.x.
   maps; custom maps are known to routing; the router is rebuilt when they
   change; fixes an engine abort when a map that is not in the country list has
   the current data version.
+* Build fix: the plugin now compiles against Android API 36, as current
+  `flutter_plugin_android_lifecycle` and AndroidX releases require. Before this,
+  a new app failed at `checkReleaseAarMetadata`.
+* Release build fix: the plugin now ships the R8/ProGuard keep rule for the
+  engine (`-keep class app.organicmaps.sdk.**`). The 0.2.0 engine AAR does not
+  carry it, and without it a release build crashed at start-up with
+  `NoSuchFieldError ... BookmarkManager ... INSTANCE`.
 
 ## 0.1.1
 
