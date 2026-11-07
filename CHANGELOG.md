@@ -1,3 +1,15 @@
+## 0.2.2
+
+* Fix the route preview of a short route coming up zoomed far out on the first
+  open after the app starts: a blank map with `MapPolicy.installedOnly` and no
+  base world map, a tiny world with it. A short route is built before the map
+  has a drawing engine, so the engine's zoom to the route was silently dropped.
+  The page now builds the route once more when the drawing engine appears, and
+  the engine fits it. Routes that were already fitted are untouched.
+* The Kotlin unit tests run again. A leftover template test had stopped them
+  compiling since the Pigeon migration and is removed; the new logic has tests.
+  `tool/check_preview_framing.sh` checks the fix on a device.
+
 ## 0.2.1
 
 * `MapPolicy.installedOnly` no longer needs the base world map (`World.mwm` and
