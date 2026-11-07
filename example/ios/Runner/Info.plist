@@ -68,6 +68,13 @@
 	</array>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>The example app shows your position on the offline map and guides you along a route.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>The on-device tests download a map from a server on the development machine.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>audio</string>
+	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- The on-device tests download a map from a server on the development machine. -->

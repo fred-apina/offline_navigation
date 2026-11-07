@@ -26,6 +26,23 @@ const _id = String.fromEnvironment('REGION_ID', defaultValue: 'serengeti');
 const _url = String.fromEnvironment('REGION_URL');
 const _sha = String.fromEnvironment('REGION_SHA256');
 const _size = int.fromEnvironment('REGION_SIZE');
+
+// Without a server (a physical iPhone, which cannot reach one reliably): copy the map into the app's Documents
+// folder over USB,
+//   xcrun devicectl device copy to --device <udid> --source serengeti.mwm --destination Documents/serengeti.mwm \
+//     --domain-type appDataContainer --domain-identifier <bundle id>
+// and run with REGION_FILE=serengeti.mwm instead of REGION_URL. The map then goes through
+// installRegionMapFromFile, the call the downloader itself ends with.
+const _regionFile = String.fromEnvironment('REGION_FILE');
+bool get _fromFile => _regionFile.isNotEmpty;
+// The app's temp folder is a sibling of its Documents folder (an iPhone app has no HOME variable).
+String get _filePath => '${Directory.systemTemp.parent.path}/Documents/$_regionFile';
+
+Future<RegionMapInfo> _installRegion({String id = _id, String? sha256}) {
+  if (_fromFile) return OfflineNavigation.installRegionMapFromFile(id, _filePath, sha256: sha256 ?? _sha);
+  return OfflineNavigation.installRegionMap(RegionMapSource(
+      id: id, url: Uri.parse(_url), sha256: sha256 ?? _sha, sizeBytes: _size > 0 ? _size : null));
+}
 const _phase = String.fromEnvironment('PHASE', defaultValue: 'all');
 
 // For a one-run proof: after the install the test prints READY_FOR_OFFLINE and
@@ -72,7 +89,7 @@ void main() {
 
   group('install', () {
     testWidgets('downloads, verifies and installs a region map', (tester) async {
-      expect(_url, isNotEmpty, reason: 'pass --dart-define=REGION_URL=...');
+      expect(_fromFile || _url.isNotEmpty, isTrue, reason: 'pass --dart-define=REGION_URL=... or REGION_FILE=...');
       expect(_sha, isNotEmpty, reason: 'pass --dart-define=REGION_SHA256=...');
 
       await OfflineNavigation.initialize();
@@ -90,19 +107,21 @@ void main() {
       expect(await OfflineNavigation.isRegionMapInstalled(_id), isFalse);
 
       final progress = <double?>[];
-      final info = await OfflineNavigation.installRegionMap(
-        RegionMapSource(
-          id: _id,
-          url: Uri.parse(_url),
-          sha256: _sha,
-          sizeBytes: _size > 0 ? _size : null,
-        ),
-        onProgress: (p) => progress.add(p.fraction),
-      );
+      final info = _fromFile
+          ? await _installRegion()
+          : await OfflineNavigation.installRegionMap(
+              RegionMapSource(
+                id: _id,
+                url: Uri.parse(_url),
+                sha256: _sha,
+                sizeBytes: _size > 0 ? _size : null,
+              ),
+              onProgress: (p) => progress.add(p.fraction),
+            );
       debugPrint('installed: $info');
       expect(info.id, _id);
       if (_size > 0) expect(info.sizeBytes, _size);
-      expect(progress, isNotEmpty);
+      if (!_fromFile) expect(progress, isNotEmpty);
       expect(await OfflineNavigation.isRegionMapInstalled(_id), isTrue);
       expect(await OfflineNavigation.listRegionMaps(), contains(info));
 
@@ -116,12 +135,11 @@ void main() {
     // engine whenever the map was not in use at that moment.
     testWidgets('removes an installed map and installs it again, twice', (tester) async {
       await OfflineNavigation.initialize();
-      final source = RegionMapSource(id: _id, url: Uri.parse(_url), sha256: _sha, sizeBytes: _size > 0 ? _size : null);
       for (var round = 0; round < 2; round++) {
         await OfflineNavigation.removeRegionMap(_id);
         expect(await OfflineNavigation.isRegionMapInstalled(_id), isFalse, reason: 'round $round: removed');
         expect(await OfflineNavigation.listRegionMaps(), isEmpty, reason: 'round $round: none listed');
-        await OfflineNavigation.installRegionMap(source);
+        await _installRegion();
         expect(await OfflineNavigation.isRegionMapInstalled(_id), isTrue, reason: 'round $round: installed again');
       }
     }, skip: _phase == 'navigate');
@@ -139,12 +157,8 @@ void main() {
         return null;
       }
 
-      final source = RegionMapSource(id: _id, url: Uri.parse(_url), sha256: _sha, sizeBytes: _size);
-      expect(await errorOf(() => OfflineNavigation.installRegionMap(source)),
-          MapInstallError.alreadyInstalled);
-      expect(await errorOf(() => OfflineNavigation.installRegionMap(
-                RegionMapSource(id: '../x', url: Uri.parse(_url), sha256: _sha))),
-          MapInstallError.invalidId);
+      expect(await errorOf(() => _installRegion()), MapInstallError.alreadyInstalled);
+      expect(await errorOf(() => _installRegion(id: '../x')), MapInstallError.invalidId);
       expect(await errorOf(() => OfflineNavigation.installRegionMapFromFile('World', '/nonexistent')),
           MapInstallError.reservedName);
       expect(await errorOf(() => OfflineNavigation.installRegionMapFromFile('Tanzania', '/nonexistent')),
@@ -153,12 +167,7 @@ void main() {
           MapInstallError.fileNotFound);
 
       // A wrong checksum must be rejected and must leave nothing behind.
-      expect(
-          await errorOf(() => OfflineNavigation.installRegionMap(RegionMapSource(
-              id: 'wronghash',
-              url: Uri.parse(_url),
-              sha256: '0' * 64,
-              sizeBytes: _size > 0 ? _size : null))),
+      expect(await errorOf(() => _installRegion(id: 'wronghash', sha256: '0' * 64)),
           MapInstallError.checksumMismatch);
       expect(await OfflineNavigation.isRegionMapInstalled('wronghash'), isFalse);
 
