@@ -31,3 +31,8 @@ migrate_working_dir/
 .flutter-plugins
 .flutter-plugins-dependencies
 build/
+
+# The iOS engine (XCFramework) and its data files are build products of the engine fork, not source: see
+# PUBLISHING.md. They are not committed, but they ARE shipped in the pub package (see .pubignore).
+/ios/Frameworks/
+/ios/Resources/

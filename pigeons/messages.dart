@@ -4,13 +4,14 @@
 //   dart run pigeon --input pigeons/messages.dart
 //
 // The two event streams (map downloads, guidance updates) intentionally stay
-// as plain EventChannels — see channels.dart / StreamHandlers.kt.
+// as plain EventChannels — see channels.dart / StreamHandlers.kt / StreamHandlers.swift.
 import 'package:pigeon/pigeon.dart';
 
 @ConfigurePigeon(PigeonOptions(
   dartOut: 'lib/src/messages.g.dart',
   kotlinOut: 'android/src/main/kotlin/io/github/fredapina/offline_navigation/Messages.g.kt',
   kotlinOptions: KotlinOptions(package: 'io.github.fredapina.offline_navigation'),
+  swiftOut: 'ios/Classes/Messages.g.swift',
   dartPackageName: 'offline_navigation',
 ))
 

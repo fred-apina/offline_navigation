@@ -1,14 +1,19 @@
 # Publishing runbook (maintainer only)
 
-This library has two artifacts that get published separately:
+This library has three artifacts:
 
-1. **`io.github.fred-apina:organicmaps-sdk`** — the prebuilt native engine AAR,
-   published to **Maven Central**. Rebuilt only when the engine or its bundled
-   map-data version changes.
-2. **`offline_navigation`** — the Dart/Flutter plugin, published to **pub.dev**.
-   Depends on (1).
+1. **`io.github.fred-apina:organicmaps-sdk`** — the prebuilt native engine AAR
+   for Android, published to **Maven Central**. Rebuilt only when the engine or
+   its bundled map-data version changes.
+2. **`ios/Frameworks/OfflineNavEngine.xcframework` and `ios/Resources/`** — the
+   same engine for iOS and its data files. These travel **inside the pub.dev
+   package** (29 MB compressed), not through a registry, and are not committed
+   to git. Rebuilt only when the engine changes.
+3. **`offline_navigation`** — the Dart/Flutter plugin, published to **pub.dev**.
+   Depends on (1) and ships (2).
 
-Most releases only touch (2). You only redo (1) when updating the engine.
+Most releases only touch (3). You only redo (1) and (2) when updating the engine,
+and they must be built from the same engine commit.
 
 ---
 
@@ -87,12 +92,59 @@ The SDK module lives in the Organic Maps build tree at
   (search index can take a few hours). Bump `-Pom.sdkVersion` for every release;
   Central deployments are immutable.
 
+## Building the iOS engine (only when the engine changes)
+
+The iOS side lives in the engine fork, `iphone/OfflineNav` (an Objective-C++
+layer, one dynamic framework linked from the engine's static libraries). On a
+Mac with Xcode and the Metal Toolchain (`xcodebuild -downloadComponent
+MetalToolchain`), from a checkout of the fork **at a path without spaces**:
+
+```sh
+iphone/OfflineNav/build_xcframework.sh --out /path/to/ios-engine
+```
+
+This builds the libraries for the device and the simulator (the first run takes
+a while and uses about 5 GB of derived data), links and creates
+`Frameworks/OfflineNavEngine.xcframework`, copies the data files into
+`Resources/`, and records the engine commit in `ENGINE_COMMIT`. Copy the result
+into the plugin:
+
+```sh
+rsync -a --delete /path/to/ios-engine/Frameworks /path/to/ios-engine/Resources /path/to/ios-engine/ENGINE_COMMIT \
+  <plugin>/ios/
+```
+
+`ios/Frameworks` and `ios/Resources` are ignored by git on purpose and included
+by `.pubignore`. Then run the on-device checks (below) before publishing.
+
+### Checking an iOS build
+
+```sh
+cd example
+flutter test integration_test/region_maps_test.dart -d <simulator UDID> \
+  --dart-define=PHASE=all --dart-define=REGION_URL=http://localhost:8765/serengeti.mwm \
+  --dart-define=REGION_SHA256=<hex> --dart-define=REGION_SIZE=<bytes> --dart-define=SKIP_BASE_MAPS=true
+# or, to also look at the route preview:
+PLATFORM=ios tool/check_preview_framing.sh
+```
+
+Serve the map with `python3 -m http.server 8765 --bind 127.0.0.1 --directory <dir>`
+first (the check script does it for you). With Xcode 27 and Flutter 3.44,
+`flutter build ios --simulator` without `-d <simulator>` fails in Flutter's own
+architecture check (`lipo -verify_arch` changed); always name the simulator.
+A device build needs a signing team in `example/ios/Runner.xcodeproj`.
+
 ## Publishing the Flutter plugin
 
 Once the AAR version it depends on is live on Central (see
 `android/build.gradle`), from the `offline_navigation/` package root:
 
+Check that `ios/Frameworks/OfflineNavEngine.xcframework` and `ios/Resources/`
+are present and that `ios/ENGINE_COMMIT` is the engine commit the AAR was built
+from, then:
+
 ```sh
+flutter pub publish --dry-run   # the archive must be about 29 MB, not 1 MB
 flutter pub publish
 ```
 

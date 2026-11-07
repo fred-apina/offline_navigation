@@ -1,3 +1,16 @@
+## 0.3.0 (unreleased)
+
+* **iOS support** (iOS 15.0 or later, arm64 devices and Apple Silicon simulators).
+  The same page, the same API and the same behaviour as Android: install region
+  maps, preview a route, turn-by-turn guidance with voice, simulated routes. The
+  engine ships in the package as `OfflineNavEngine.xcframework` (about 11 MB per
+  slice) with its data files in the `offline_navigation_data` bundle; together
+  they add about 45 MB to an app. See the README for the `Podfile` and
+  `Info.plist` setup.
+* `tool/check_preview_framing.sh` also checks the iOS simulator
+  (`PLATFORM=ios`).
+* Test: removing and reinstalling a region map twice in one session.
+
 ## 0.2.2
 
 * Fix the route preview of a short route coming up zoomed far out on the first

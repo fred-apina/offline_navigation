@@ -38,6 +38,10 @@ const _requireOffline = bool.fromEnvironment('REQUIRE_OFFLINE');
 // 72 MB): the park-only case. Every assertion below must still hold.
 const _skipBaseMaps = bool.fromEnvironment('SKIP_BASE_MAPS');
 
+// Spoken turn instructions during the guidance tests (VOICE=true). Off by default: a CI run has nobody to listen,
+// but it still exercises the engine's notification path, which is worth a run on every new platform or engine.
+const _voice = bool.fromEnvironment('VOICE');
+
 // Seconds to stand still on the route preview and on the guidance screen, so
 // the host can take a screenshot (it waits for the PREVIEW_READY and
 // GUIDANCE_STARTED lines).
@@ -108,6 +112,20 @@ void main() {
       }
     }, skip: _phase == 'navigate');
 
+    // Removing a map rebuilds the router, which still lists the removed map. That used to abort the
+    // engine whenever the map was not in use at that moment.
+    testWidgets('removes an installed map and installs it again, twice', (tester) async {
+      await OfflineNavigation.initialize();
+      final source = RegionMapSource(id: _id, url: Uri.parse(_url), sha256: _sha, sizeBytes: _size > 0 ? _size : null);
+      for (var round = 0; round < 2; round++) {
+        await OfflineNavigation.removeRegionMap(_id);
+        expect(await OfflineNavigation.isRegionMapInstalled(_id), isFalse, reason: 'round $round: removed');
+        expect(await OfflineNavigation.listRegionMaps(), isEmpty, reason: 'round $round: none listed');
+        await OfflineNavigation.installRegionMap(source);
+        expect(await OfflineNavigation.isRegionMapInstalled(_id), isTrue, reason: 'round $round: installed again');
+      }
+    }, skip: _phase == 'navigate');
+
     testWidgets('refuses bad requests without touching installed maps', (tester) async {
       await OfflineNavigation.initialize();
       final before = await OfflineNavigation.listRegionMaps();
@@ -175,7 +193,7 @@ void main() {
                         options: const NavOptions(
                           mapPolicy: MapPolicy.installedOnly,
                           simulateRoute: true,
-                          voiceGuidance: false,
+                          voiceGuidance: _voice,
                         ),
                       ),
                     ),
@@ -216,6 +234,9 @@ void main() {
         _viboko,
         stop: () => find.text('Start navigation').evaluate().isNotEmpty,
         onPreview: () async {
+          // The page may still be sliding in (the loop above stops the moment the route is shown, and
+          // iOS pushes a page over half a second): let it settle so the screenshot is of the real page.
+          await tester.pump(const Duration(seconds: 1));
           debugPrint('SHORT_PREVIEW_READY');
           // Hold still: the host takes its screenshot a few seconds after the line above.
           await tester.pump(const Duration(seconds: 10));
@@ -302,6 +323,33 @@ void main() {
         expect(await OfflineNavigation.baseMapsBytesMissing, greaterThan(0));
       }
     });
+
+    // Needs VOICE=true. The route is short and has a turn soon after the start, so a spoken instruction is due.
+    // The test cannot hear it; the host checks the device log (iOS: "offline_navigation: speaking").
+    testWidgets('speaks turn instructions while guiding', (tester) async {
+      await OfflineNavigation.initialize();
+      var guided = false;
+      await runPage(
+        tester,
+        _seronera,
+        _viboko,
+        stop: () => find.text('Start navigation').evaluate().isNotEmpty,
+        onPreview: () async {
+          await tester.pump(const Duration(seconds: 1));
+          await tester.tap(find.text('Start navigation'));
+          for (var i = 0; i < 200 && find.text('End').evaluate().isEmpty; i++) {
+            await tester.pump(const Duration(milliseconds: 100));
+          }
+          // About 15 m/s simulated: the first turn is reached well within this.
+          await tester.pump(const Duration(seconds: 90));
+          guided = find.text('End').evaluate().isNotEmpty;
+          debugPrint('VOICE_GUIDANCE_DONE');
+          if (guided) await tester.tap(find.text('End'));
+          await tester.pump(const Duration(seconds: 1));
+        },
+      );
+      expect(guided, isTrue);
+    }, skip: !_voice);
 
     testWidgets('reports missing maps instead of downloading outside the region', (tester) async {
       await OfflineNavigation.initialize();

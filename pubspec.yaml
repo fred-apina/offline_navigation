@@ -32,3 +32,5 @@ flutter:
       android:
         package: io.github.fredapina.offline_navigation
         pluginClass: OfflineNavigationPlugin
+      ios:
+        pluginClass: OfflineNavigationPlugin
