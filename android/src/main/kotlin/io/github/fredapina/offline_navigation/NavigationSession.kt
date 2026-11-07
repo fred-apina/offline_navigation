@@ -42,6 +42,10 @@ object NavigationSession {
   private var voiceEnabled = false
   private var simulationActive = false
 
+  // Remembers a route that was built before the map had a drawing engine, so the
+  // engine's zoom to it was lost (see RouteRefitGate).
+  private val refitGate = RouteRefitGate()
+
   // ── Route building ────────────────────────────────────────────
 
   fun buildRoute(
@@ -85,6 +89,7 @@ object NavigationSession {
       pendingBuildCallback = null
       when (resultCode) {
         ResultCodes.NO_ERROR, ResultCodes.HAS_WARNINGS -> {
+          refitGate.onRouteBuilt()
           val info = safeFollowingInfo()
           pending(Result.success(WireRouteBuildResult(
             ok = true,
@@ -260,9 +265,33 @@ object NavigationSession {
       timeSeconds = 0,
     )))
     pendingBuildCallback = null
+    refitGate.onRouteClosed()
     stopGuidance()
     Framework.nativeCloseRouting()
     Framework.nativeRemoveRoutePoints()
+  }
+
+  // ── Route preview framing ─────────────────────────────────────
+
+  /**
+   * The map's drawing engine is available (called by the map view; may be called
+   * more than once). If the route was built before this, the engine could not zoom
+   * to it, so build it again now that it can.
+   */
+  fun onMapReady() {
+    if (refitGate.onMapReady()) refitRoute()
+  }
+
+  /** The map view is gone. */
+  fun onMapLost() = refitGate.onMapLost()
+
+  private fun refitRoute() {
+    // During guidance the follow camera owns the view.
+    if (guiding || !Framework.nativeIsRouteBuilt()) return
+    Log.i(TAG, "route was built before the map was ready: building it again to fit it")
+    // The routing listener sees no pending build and ignores the result; the
+    // engine zooms the map to the route as it does after any build.
+    Framework.nativeBuildRoute()
   }
 
   private val guidancePump = object : Runnable {

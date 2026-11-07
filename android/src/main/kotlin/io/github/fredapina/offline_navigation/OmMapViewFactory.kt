@@ -45,6 +45,8 @@ private class OmMapPlatformView(
   )
 
   init {
+    // A new view has no drawing engine until its surface exists.
+    NavigationSession.onMapLost()
     // Drive the map's start/resume/pause/stop from the host activity's lifecycle,
     // the same way MwmActivity does. Adding the observer replays the current state,
     // so a view created on a resumed activity starts rendering immediately.
@@ -55,6 +57,7 @@ private class OmMapPlatformView(
   override fun getView(): View = mapView
 
   override fun dispose() {
+    NavigationSession.onMapLost()
     val lifecycle = plugin.activityLifecycle
     lifecycle?.removeObserver(controller)
     // The view is being torn out while the activity may still be running, so the
@@ -70,16 +73,21 @@ private class OmMapPlatformView(
     controller.onDestroy(NoopLifecycleOwner)
   }
 
+  // The three callbacks all mean the map can now take camera commands. A route
+  // built before that could not be zoomed to; the session builds it again now.
   override fun onRenderingCreated() {
     Log.i(TAG, "Map rendering created")
+    NavigationSession.onMapReady()
   }
 
   override fun onRenderingRestored() {
     Log.i(TAG, "Map rendering restored")
+    NavigationSession.onMapReady()
   }
 
   override fun onRenderingInitializationFinished() {
     Log.i(TAG, "Map rendering initialization finished")
+    NavigationSession.onMapReady()
   }
 
   /** MapController ignores the owner argument; this satisfies the signature. */

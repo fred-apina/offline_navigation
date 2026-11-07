@@ -59,6 +59,9 @@ const _seronera = NavPoint(latitude: -2.4467, longitude: 34.8191, name: 'Seroner
 // Dodoma: far outside the region map.
 const _dodoma = NavPoint(latitude: -6.1722, longitude: 35.7395, name: 'Dodoma');
 const _udom = NavPoint(latitude: -6.1841, longitude: 35.9297, name: 'UDOM');
+// A short drive inside the region (about 7 km), for the first-open preview test.
+const _viboko =
+    NavPoint(latitude: -2.4935686, longitude: 34.8302072, name: 'Bwawa La Viboko Vya Naabi');
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -195,6 +198,34 @@ void main() {
       if (onPreview != null && !done.isCompleted) await onPreview();
       return done.isCompleted ? done.future : null;
     }
+
+    // Keep this the FIRST test that opens the page. The bug it covers only
+    // happens on the first open after the app starts: a short route is built
+    // before the map has a drawing engine, so the engine could not zoom to it
+    // and the preview came up zoomed far out (blank without the base maps).
+    // tool/check_preview_framing.sh takes a screenshot at SHORT_PREVIEW_READY and
+    // checks that the map is really drawn.
+    testWidgets('frames a short route on the very first open', (tester) async {
+      await OfflineNavigation.initialize();
+      expect(await OfflineNavigation.isRegionMapInstalled(_id), isTrue,
+          reason: 'run the install phase first');
+
+      final result = await runPage(
+        tester,
+        _seronera,
+        _viboko,
+        stop: () => find.text('Start navigation').evaluate().isNotEmpty,
+        onPreview: () async {
+          debugPrint('SHORT_PREVIEW_READY');
+          // Hold still: the host takes its screenshot a few seconds after the line above.
+          await tester.pump(const Duration(seconds: 10));
+          await tester.tap(find.byIcon(Icons.close));
+          await tester.pump(const Duration(seconds: 1));
+        },
+      );
+      expect(result?.outcome, NavigationOutcome.cancelledByUser,
+          reason: 'no route preview was reached; page result: $result');
+    });
 
     testWidgets('routes inside the installed region with no network', (tester) async {
       await OfflineNavigation.initialize();
