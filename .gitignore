@@ -36,3 +36,6 @@ build/
 # PUBLISHING.md. They are not committed, but they ARE shipped in the pub package (see .pubignore).
 /ios/Frameworks/
 /ios/Resources/
+
+# The example's CocoaPods lockfile pins versions of machine-specific build output.
+/example/ios/Podfile.lock
