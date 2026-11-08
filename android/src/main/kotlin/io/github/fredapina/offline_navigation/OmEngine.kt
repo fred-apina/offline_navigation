@@ -6,10 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import app.organicmaps.sdk.OrganicMaps
-import app.organicmaps.sdk.location.AndroidNativeProvider
-import app.organicmaps.sdk.location.BaseLocationProvider
 import app.organicmaps.sdk.location.LocationHelper
-import app.organicmaps.sdk.location.LocationProviderFactory
 import app.organicmaps.sdk.settings.UnitLocale
 import app.organicmaps.sdk.util.ConnectionState
 import app.organicmaps.sdk.util.StorageUtils
@@ -123,24 +120,14 @@ object OmEngine {
     val versionCode =
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode.toInt()
       else @Suppress("DEPRECATION") info.versionCode
+    // The SDK picks the location provider itself: Android's own location stack, unless a Google Play Services
+    // module is on the classpath (the plugin does not include one).
     return OrganicMaps(
       context,
       /* flavor = */ "",
       /* applicationId = */ context.packageName,
       versionCode,
       /* versionName = */ info.versionName ?: "0.0.0",
-      /* fileProviderAuthority = */ "${context.packageName}.offline_navigation.provider",
-      NativeLocationProviderFactory(),
     )
-  }
-
-  /** Always uses Android's own location stack; no Google Play Services dependency. */
-  private class NativeLocationProviderFactory : LocationProviderFactory {
-    override fun isGoogleLocationAvailable(context: Context) = false
-
-    override fun getProvider(
-      context: Context,
-      listener: BaseLocationProvider.Listener,
-    ): BaseLocationProvider = AndroidNativeProvider(context, listener)
   }
 }

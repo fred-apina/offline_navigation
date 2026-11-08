@@ -7,6 +7,22 @@
   slice) with its data files in the `offline_navigation_data` bundle; together
   they add about 45 MB to an app. See the README for the `Podfile` and
   `Info.plist` setup.
+* **New engine on Android too.** Both platforms now run the current Organic Maps
+  engine (data version 260714, released maps built for 260111 keep working: the
+  map file format did not change), with our region-map patches ported on top. The
+  Android library is now two artifacts, `organicmaps-sdk` and the module it
+  depends on, `organicmaps-sdk-location-core`; Gradle fetches both. Apps still
+  build with `compileSdk 36` (the library's `okhttp` is held at 5.4.0, 5.5.0 and
+  later need 37) and the library contains no Java records, so older Android Gradle
+  plugin versions can dex it. The plugin uses the SDK's own location provider
+  (Android's location stack, no Google Play Services).
+* Engine fixes that came with the move, found by the iOS tests and checked on
+  Android too: a map installed while the app runs was unknown to the router (every
+  route inside it failed with "start point not found"); removing a map could abort
+  the engine; a screen opened a second time got a navigation camera with the car
+  near the top of the screen. On iOS, following the route with no map on the
+  screen (page still opening, a system dialog, page just closed) aborted the app;
+  it now waits for the map.
 * `tool/check_preview_framing.sh` also checks the iOS simulator
   (`PLATFORM=ios`).
 * Test: removing and reinstalling a region map twice in one session.

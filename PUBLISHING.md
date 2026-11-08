@@ -66,31 +66,58 @@ signingInMemoryKeyPassword=<your key passphrase>
 
 ## Publishing the engine AAR (only when the engine changes)
 
-> **Note on where the SDK build lives.** The `:sdk` module that produces the
-> AAR currently lives in a local Organic Maps build tree
-> (`flutter_organic_nav/android`) that is **not** yet under version control.
-> A snapshot of its `build.gradle.kts` is preserved in this repo at
-> [`tool/organicmaps-sdk.build.gradle.kts.reference`](tool/organicmaps-sdk.build.gradle.kts.reference)
-> so the publishing config isn't lost. Moving this build into a proper
-> `organicmaps` fork with CI is a tracked follow-up (it's what will let the AAR
-> be rebuilt reproducibly instead of only on one machine).
+The Android engine is built from the engine fork, `fred-apina/organicmaps`, by
+the workflow `.github/workflows/sdk-publish.yaml`. It builds two Maven
+artifacts, both under `io.github.fred-apina`: `organicmaps-sdk` and the module it
+depends on, `organicmaps-sdk-location-core`. The fork's
+`android/groovy/fork-publishing.gradle` sets the coordinates (upstream's own
+publishing helper uses `app.organicmaps.sdk`), keeps apps on `compileSdk 36`, and
+adds the Central Portal upload.
 
-The SDK module lives in the Organic Maps build tree at
-`flutter_organic_nav/android` (module `:sdk`). From there:
+1. **Build only** (no secrets needed). Check that it is green and download the
+   artifact if you want to test it:
+
+   ```sh
+   gh workflow run sdk-publish.yaml -R fred-apina/organicmaps --ref <branch> \
+     -f version=<version> -f publish=false
+   ```
+
+   It builds all four ABIs, checks that the native library is stripped and that the
+   consumer ProGuard rules are in the AAR, and attaches both AARs.
+
+2. **Publish** (needs the repository secrets `MAVEN_CENTRAL_USERNAME`,
+   `MAVEN_CENTRAL_PASSWORD`, `SIGNING_KEY`, `SIGNING_KEY_ID`,
+   `SIGNING_KEY_PASSWORD`). This stages **two** signed deployments, one per
+   module:
+
+   ```sh
+   gh workflow run sdk-publish.yaml -R fred-apina/organicmaps --ref <branch> \
+     -f version=<version> -f publish=true
+   ```
+
+   Review both at <https://central.sonatype.com/publishing> and press *Publish*
+   on **both** (publishing only one leaves the other missing and breaks every
+   build that resolves the first). Never publish a release candidate version.
+   After it completes the artifacts appear on Maven Central within about 10-30
+   minutes (the search index can take a few hours). Central deployments are
+   immutable: use a new version for every release.
+
+3. Set the plugin's `omSdkVersion` default in `android/build.gradle` to the new
+   version, and the plugin version in `pubspec.yaml` and `ios/offline_navigation.podspec`.
+
+To try the engine locally before any of that, in the fork's `android` folder (JDK
+17, Python 3.11 or newer first on `PATH`, `ANDROID_HOME` set):
 
 ```sh
-# Builds all ABIs, signs, uploads to the Central Portal, and releases:
-./gradlew :sdk:publishAndReleaseToMavenCentral --no-configuration-cache \
-  -Pom.sdkVersion=<version>
+./gradlew :sdk:publishToMavenLocal :sdk:location:core:publishToMavenLocal \
+  -PsdkVersion=0.3.0-local -Parm64-v8a --no-configuration-cache
 ```
 
-- Omit `-Pom.abiFilters` so all four ABIs are built (the default).
-- Use `publishToMavenCentral` (without `AndReleaseTo`) if you'd rather review
-  the staged deployment in the Portal and click *Publish* manually — recommended
-  for your first upload.
-- After it completes, the artifact appears on Maven Central within ~10–30 min
-  (search index can take a few hours). Bump `-Pom.sdkVersion` for every release;
-  Central deployments are immutable.
+then put `offlineNavigation.sdkVersion=0.3.0-local` in the example app's
+`android/gradle.properties` (do not commit it). `-Parm64-v8a` builds one ABI in a
+couple of minutes. The older `tool/publish_sdk_aar.sh` and
+`tool/organicmaps-sdk.build.gradle.kts.reference` belong to the previous local
+build tree and are kept only for reference.
 
 ## Building the iOS engine (only when the engine changes)
 

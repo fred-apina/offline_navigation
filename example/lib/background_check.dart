@@ -5,7 +5,8 @@
 //
 //   flutter build ios --release -t lib/background_check.dart
 //
-// then install it, copy the region map into the app's Documents folder as serengeti.mwm
+// then install it, copy the region map into the app's Documents folder as serengeti.mwm (iOS; on Android pass
+// REGION_URL and REGION_SHA256 as dart-defines instead and serve the file, see below)
 //
 //   xcrun devicectl device copy to --device <udid> --source serengeti.mwm --destination Documents/serengeti.mwm \
 //     --domain-type appDataContainer --domain-identifier <bundle id>
@@ -21,6 +22,10 @@ import 'package:flutter/material.dart';
 import 'package:offline_navigation/offline_navigation.dart';
 
 const _id = 'serengeti';
+// Without a file in Documents (Android has no such folder to copy to): download the map from this address, with the
+// checksum, e.g. --dart-define=REGION_URL=http://localhost:8765/serengeti.mwm (adb reverse tcp:8765 tcp:8765).
+const _url = String.fromEnvironment('REGION_URL');
+const _sha = String.fromEnvironment('REGION_SHA256');
 const _seronera = NavPoint(latitude: -2.4467, longitude: 34.8191, name: 'Seronera');
 const _viboko = NavPoint(latitude: -2.4935686, longitude: 34.8302072, name: 'Bwawa La Viboko Vya Naabi');
 
@@ -76,9 +81,14 @@ class _CheckState extends State<_Check> with WidgetsBindingObserver {
     try {
       await OfflineNavigation.initialize();
       if (!await OfflineNavigation.isRegionMapInstalled(_id)) {
-        final file = '${Directory.systemTemp.parent.path}/Documents/serengeti.mwm';
-        _log('installing the region map from $file');
-        await OfflineNavigation.installRegionMapFromFile(_id, file);
+        if (_url.isNotEmpty) {
+          _log('installing the region map from $_url');
+          await OfflineNavigation.installRegionMap(RegionMapSource(id: _id, url: Uri.parse(_url), sha256: _sha));
+        } else {
+          final file = '${Directory.systemTemp.parent.path}/Documents/serengeti.mwm';
+          _log('installing the region map from $file');
+          await OfflineNavigation.installRegionMapFromFile(_id, file);
+        }
       }
       _log('engine ready, region map installed');
       if (!mounted) return;
