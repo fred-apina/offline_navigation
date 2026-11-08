@@ -87,12 +87,21 @@ shows the permission prompt, so guidance cannot use the GPS):
 
 To keep guiding when the screen is locked or the app is in the background, also
 add the `location` background mode (the plugin turns background updates on only
-when the app declares it):
+when the app declares it) and the `audio` mode, which lets the spoken turn
+instructions play with the screen locked:
 
 ```xml
 <key>UIBackgroundModes</key>
-<array><string>location</string></array>
+<array>
+  <string>location</string>
+  <string>audio</string>
+</array>
 ```
+
+The location mode is what keeps the app running while it guides, so it applies
+to real guidance. A simulated drive (`simulateRoute: true`) has no location
+updates to keep it alive: iOS suspends the app a few seconds after it leaves the
+screen, and the drive carries on from where it was when the app comes back.
 
 The iOS simulator runs on Apple Silicon (arm64) only; there is no Intel
 simulator slice.

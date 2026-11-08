@@ -10,6 +10,9 @@
 * `tool/check_preview_framing.sh` also checks the iOS simulator
   (`PLATFORM=ios`).
 * Test: removing and reinstalling a region map twice in one session.
+* Tests: guidance that follows the device's own location (no simulated drive),
+  and `example/lib/background_check.dart`, a standalone app to check guidance and
+  voice through Home and a locked phone.
 
 ## 0.2.2
 

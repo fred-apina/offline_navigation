@@ -64,6 +64,14 @@ const _voice = bool.fromEnvironment('VOICE');
 // GUIDANCE_STARTED lines).
 const _holdSeconds = int.fromEnvironment('HOLD_SECONDS');
 
+// BACKGROUND_SECONDS > 0 runs the test that drives for that long while somebody sends the app to the background (Home,
+// lock the screen) and brings it back; see 'keeps guiding while the app is in the background'.
+const _backgroundSeconds = int.fromEnvironment('BACKGROUND_SECONDS');
+
+// GPS_SECONDS > 0 runs the test that follows the device's own location (no simulated drive) for that long; the host
+// has to feed locations to the device meanwhile (simulator: xcrun simctl location <udid> start ...).
+const _gpsSeconds = int.fromEnvironment('GPS_SECONDS');
+
 Future<bool> _networkReachable() async {
   try {
     final socket = await Socket.connect('1.1.1.1', 443, timeout: const Duration(seconds: 3));
@@ -186,6 +194,7 @@ void main() {
       NavPoint destination, {
       required bool Function() stop,
       Future<void> Function()? onPreview,
+      bool simulate = true,
     }) async {
       final done = Completer<NavigationResult?>();
       await tester.pumpWidget(MaterialApp(
@@ -199,9 +208,9 @@ void main() {
                       builder: (_) => OfflineNavigationPage(
                         start: start,
                         destination: destination,
-                        options: const NavOptions(
+                        options: NavOptions(
                           mapPolicy: MapPolicy.installedOnly,
-                          simulateRoute: true,
+                          simulateRoute: simulate,
                           voiceGuidance: _voice,
                         ),
                       ),
@@ -362,6 +371,92 @@ void main() {
       );
       expect(guided, isTrue);
     }, skip: !_voice);
+
+    String pageTexts(WidgetTester tester) =>
+        tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).whereType<String>().join(' | ');
+
+    // The drive keeps going when the app is not on the screen: the host (or a person) presses Home, locks the phone,
+    // waits, unlocks and opens the app again between BACKGROUND_TEST_STARTED and BACKGROUND_TEST_DONE. Needs the
+    // audio + location background modes in the host app, which the example has. The map must draw again afterwards;
+    // the host takes a screenshot a few seconds after BACKGROUND_TEST_DONE to see it.
+    testWidgets('keeps guiding while the app is in the background', (tester) async {
+      await OfflineNavigation.initialize();
+      String? before;
+      String? after;
+      await runPage(
+        tester,
+        _seronera,
+        _viboko,
+        stop: () => find.text('Start navigation').evaluate().isNotEmpty,
+        onPreview: () async {
+          await tester.pump(const Duration(seconds: 1));
+          await tester.tap(find.text('Start navigation'));
+          for (var i = 0; i < 200 && find.text('End').evaluate().isEmpty; i++) {
+            await tester.pump(const Duration(milliseconds: 100));
+          }
+          await tester.pump(const Duration(seconds: 3));
+          before = pageTexts(tester);
+          debugPrint('BACKGROUND_TEST_STARTED guidance: $before');
+          // Plain delays, not pumps: a pump waits for a frame and the app draws none while it is in the background.
+          final watch = Stopwatch()..start();
+          while (watch.elapsed.inSeconds < _backgroundSeconds) {
+            await Future<void>.delayed(const Duration(seconds: 10));
+            debugPrint('BACKGROUND_TICK ${watch.elapsed.inSeconds}s');
+          }
+          // Back on the screen: the page must be drawing and updating again.
+          await tester.pump(const Duration(seconds: 2));
+          after = pageTexts(tester);
+          debugPrint('BACKGROUND_TEST_DONE guidance: $after');
+          // Hold still so the host can take its screenshot of the page and the map.
+          await tester.pump(const Duration(seconds: 8));
+          expect(find.text('End'), findsOneWidget);
+          await tester.tap(find.text('End'));
+          await tester.pump(const Duration(seconds: 1));
+        },
+      );
+      expect(before, isNotNull, reason: 'the drive never started');
+      expect(after, contains('End'));
+      expect(after, isNot(equals(before)), reason: 'the guidance did not move while the app was away');
+    }, skip: _backgroundSeconds == 0);
+
+    // The real thing a driver uses: no simulated drive, the engine follows the device's location. The host puts the
+    // device at the start before the test and feeds it positions along the road after GPS_GUIDANCE_STARTED. The
+    // guidance has to change as the device moves, and the page must still be guiding at the end.
+    testWidgets('follows the device location when the drive is not simulated', (tester) async {
+      await OfflineNavigation.initialize();
+      String? before;
+      String? after;
+      final result = await runPage(
+        tester,
+        _naabiHill,
+        _seronera,
+        simulate: false,
+        stop: () => find.text('Start navigation').evaluate().isNotEmpty,
+        onPreview: () async {
+          await tester.pump(const Duration(seconds: 1));
+          await tester.tap(find.text('Start navigation'));
+          for (var i = 0; i < 200 && find.text('End').evaluate().isEmpty; i++) {
+            await tester.pump(const Duration(milliseconds: 100));
+          }
+          await tester.pump(const Duration(seconds: 3));
+          before = pageTexts(tester);
+          debugPrint('GPS_GUIDANCE_STARTED guidance: $before');
+          for (var waited = 0; waited < _gpsSeconds; waited += 10) {
+            await tester.pump(const Duration(seconds: 10));
+            debugPrint('GPS_TICK ${waited + 10}s guidance: ${pageTexts(tester)}');
+          }
+          after = pageTexts(tester);
+          debugPrint('GPS_GUIDANCE_DONE guidance: $after');
+          if (find.text('End').evaluate().isNotEmpty) {
+            await tester.tap(find.text('End'));
+          }
+          await tester.pump(const Duration(seconds: 1));
+        },
+      );
+      expect(before, isNotNull, reason: 'no route preview, or the location permission was refused; page result: $result');
+      expect(before, contains('End'));
+      expect(after, isNot(equals(before)), reason: 'the device moved but the guidance did not follow');
+    }, skip: _gpsSeconds == 0);
 
     testWidgets('reports missing maps instead of downloading outside the region', (tester) async {
       await OfflineNavigation.initialize();
