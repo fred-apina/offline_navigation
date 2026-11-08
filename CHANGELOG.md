@@ -1,3 +1,35 @@
+## 0.3.0 (unreleased)
+
+* **iOS support** (iOS 15.0 or later, arm64 devices and Apple Silicon simulators).
+  The same page, the same API and the same behaviour as Android: install region
+  maps, preview a route, turn-by-turn guidance with voice, simulated routes. The
+  engine ships in the package as `OfflineNavEngine.xcframework` (about 11 MB per
+  slice) with its data files in the `offline_navigation_data` bundle; together
+  they add about 45 MB to an app. See the README for the `Podfile` and
+  `Info.plist` setup.
+* **New engine on Android too.** Both platforms now run the current Organic Maps
+  engine (data version 260714, released maps built for 260111 keep working: the
+  map file format did not change), with our region-map patches ported on top. The
+  Android library is now two artifacts, `organicmaps-sdk` and the module it
+  depends on, `organicmaps-sdk-location-core`; Gradle fetches both. Apps still
+  build with `compileSdk 36` (the library's `okhttp` is held at 5.4.0, 5.5.0 and
+  later need 37) and the library contains no Java records, so older Android Gradle
+  plugin versions can dex it. The plugin uses the SDK's own location provider
+  (Android's location stack, no Google Play Services).
+* Engine fixes that came with the move, found by the iOS tests and checked on
+  Android too: a map installed while the app runs was unknown to the router (every
+  route inside it failed with "start point not found"); removing a map could abort
+  the engine; a screen opened a second time got a navigation camera with the car
+  near the top of the screen. On iOS, following the route with no map on the
+  screen (page still opening, a system dialog, page just closed) aborted the app;
+  it now waits for the map.
+* `tool/check_preview_framing.sh` also checks the iOS simulator
+  (`PLATFORM=ios`).
+* Test: removing and reinstalling a region map twice in one session.
+* Tests: guidance that follows the device's own location (no simulated drive),
+  and `example/lib/background_check.dart`, a standalone app to check guidance and
+  voice through Home and a locked phone.
+
 ## 0.2.2
 
 * Fix the route preview of a short route coming up zoomed far out on the first

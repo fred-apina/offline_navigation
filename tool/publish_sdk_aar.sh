@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# LEGACY: publishes from the old local build tree (flutter_organic_nav), which is on the old engine. Releases now
+# come from the engine fork's workflow, see PUBLISHING.md. Kept for reference.
+#
 # Builds the Organic Maps SDK AAR (all ABIs, release), signs it, and publishes
 # it to Maven Central via the Sonatype Central Portal.
 #

@@ -64,9 +64,9 @@ object NavigationSession {
     Framework.nativeCloseRouting()
     Router.set(parseRouter(mode))
     Framework.nativeAddRoutePoint(
-      start.name ?: "Start", "", RouteMarkType.Start, 0, false, start.latitude, start.longitude, true)
+      start.name ?: "Start", "", RouteMarkType.Start, false, start.latitude, start.longitude, true)
     Framework.nativeAddRoutePoint(
-      destination.name ?: "Destination", "", RouteMarkType.Finish, 0, false,
+      destination.name ?: "Destination", "", RouteMarkType.Finish, false,
       destination.latitude, destination.longitude, true)
     Framework.nativeBuildRoute()
   }

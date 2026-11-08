@@ -26,6 +26,23 @@ const _id = String.fromEnvironment('REGION_ID', defaultValue: 'serengeti');
 const _url = String.fromEnvironment('REGION_URL');
 const _sha = String.fromEnvironment('REGION_SHA256');
 const _size = int.fromEnvironment('REGION_SIZE');
+
+// Without a server (a physical iPhone, which cannot reach one reliably): copy the map into the app's Documents
+// folder over USB,
+//   xcrun devicectl device copy to --device <udid> --source serengeti.mwm --destination Documents/serengeti.mwm \
+//     --domain-type appDataContainer --domain-identifier <bundle id>
+// and run with REGION_FILE=serengeti.mwm instead of REGION_URL. The map then goes through
+// installRegionMapFromFile, the call the downloader itself ends with.
+const _regionFile = String.fromEnvironment('REGION_FILE');
+bool get _fromFile => _regionFile.isNotEmpty;
+// The app's temp folder is a sibling of its Documents folder (an iPhone app has no HOME variable).
+String get _filePath => '${Directory.systemTemp.parent.path}/Documents/$_regionFile';
+
+Future<RegionMapInfo> _installRegion({String id = _id, String? sha256}) {
+  if (_fromFile) return OfflineNavigation.installRegionMapFromFile(id, _filePath, sha256: sha256 ?? _sha);
+  return OfflineNavigation.installRegionMap(RegionMapSource(
+      id: id, url: Uri.parse(_url), sha256: sha256 ?? _sha, sizeBytes: _size > 0 ? _size : null));
+}
 const _phase = String.fromEnvironment('PHASE', defaultValue: 'all');
 
 // For a one-run proof: after the install the test prints READY_FOR_OFFLINE and
@@ -38,10 +55,22 @@ const _requireOffline = bool.fromEnvironment('REQUIRE_OFFLINE');
 // 72 MB): the park-only case. Every assertion below must still hold.
 const _skipBaseMaps = bool.fromEnvironment('SKIP_BASE_MAPS');
 
+// Spoken turn instructions during the guidance tests (VOICE=true). Off by default: a CI run has nobody to listen,
+// but it still exercises the engine's notification path, which is worth a run on every new platform or engine.
+const _voice = bool.fromEnvironment('VOICE');
+
 // Seconds to stand still on the route preview and on the guidance screen, so
 // the host can take a screenshot (it waits for the PREVIEW_READY and
 // GUIDANCE_STARTED lines).
 const _holdSeconds = int.fromEnvironment('HOLD_SECONDS');
+
+// BACKGROUND_SECONDS > 0 runs the test that drives for that long while somebody sends the app to the background (Home,
+// lock the screen) and brings it back; see 'keeps guiding while the app is in the background'.
+const _backgroundSeconds = int.fromEnvironment('BACKGROUND_SECONDS');
+
+// GPS_SECONDS > 0 runs the test that follows the device's own location (no simulated drive) for that long; the host
+// has to feed locations to the device meanwhile (simulator: xcrun simctl location <udid> start ...).
+const _gpsSeconds = int.fromEnvironment('GPS_SECONDS');
 
 Future<bool> _networkReachable() async {
   try {
@@ -68,7 +97,7 @@ void main() {
 
   group('install', () {
     testWidgets('downloads, verifies and installs a region map', (tester) async {
-      expect(_url, isNotEmpty, reason: 'pass --dart-define=REGION_URL=...');
+      expect(_fromFile || _url.isNotEmpty, isTrue, reason: 'pass --dart-define=REGION_URL=... or REGION_FILE=...');
       expect(_sha, isNotEmpty, reason: 'pass --dart-define=REGION_SHA256=...');
 
       await OfflineNavigation.initialize();
@@ -86,25 +115,40 @@ void main() {
       expect(await OfflineNavigation.isRegionMapInstalled(_id), isFalse);
 
       final progress = <double?>[];
-      final info = await OfflineNavigation.installRegionMap(
-        RegionMapSource(
-          id: _id,
-          url: Uri.parse(_url),
-          sha256: _sha,
-          sizeBytes: _size > 0 ? _size : null,
-        ),
-        onProgress: (p) => progress.add(p.fraction),
-      );
+      final info = _fromFile
+          ? await _installRegion()
+          : await OfflineNavigation.installRegionMap(
+              RegionMapSource(
+                id: _id,
+                url: Uri.parse(_url),
+                sha256: _sha,
+                sizeBytes: _size > 0 ? _size : null,
+              ),
+              onProgress: (p) => progress.add(p.fraction),
+            );
       debugPrint('installed: $info');
       expect(info.id, _id);
       if (_size > 0) expect(info.sizeBytes, _size);
-      expect(progress, isNotEmpty);
+      if (!_fromFile) expect(progress, isNotEmpty);
       expect(await OfflineNavigation.isRegionMapInstalled(_id), isTrue);
       expect(await OfflineNavigation.listRegionMaps(), contains(info));
 
       if (_offlineDelaySeconds > 0) {
         debugPrint('READY_FOR_OFFLINE');
         await Future<void>.delayed(const Duration(seconds: _offlineDelaySeconds));
+      }
+    }, skip: _phase == 'navigate');
+
+    // Removing a map rebuilds the router, which still lists the removed map. That used to abort the
+    // engine whenever the map was not in use at that moment.
+    testWidgets('removes an installed map and installs it again, twice', (tester) async {
+      await OfflineNavigation.initialize();
+      for (var round = 0; round < 2; round++) {
+        await OfflineNavigation.removeRegionMap(_id);
+        expect(await OfflineNavigation.isRegionMapInstalled(_id), isFalse, reason: 'round $round: removed');
+        expect(await OfflineNavigation.listRegionMaps(), isEmpty, reason: 'round $round: none listed');
+        await _installRegion();
+        expect(await OfflineNavigation.isRegionMapInstalled(_id), isTrue, reason: 'round $round: installed again');
       }
     }, skip: _phase == 'navigate');
 
@@ -121,12 +165,8 @@ void main() {
         return null;
       }
 
-      final source = RegionMapSource(id: _id, url: Uri.parse(_url), sha256: _sha, sizeBytes: _size);
-      expect(await errorOf(() => OfflineNavigation.installRegionMap(source)),
-          MapInstallError.alreadyInstalled);
-      expect(await errorOf(() => OfflineNavigation.installRegionMap(
-                RegionMapSource(id: '../x', url: Uri.parse(_url), sha256: _sha))),
-          MapInstallError.invalidId);
+      expect(await errorOf(() => _installRegion()), MapInstallError.alreadyInstalled);
+      expect(await errorOf(() => _installRegion(id: '../x')), MapInstallError.invalidId);
       expect(await errorOf(() => OfflineNavigation.installRegionMapFromFile('World', '/nonexistent')),
           MapInstallError.reservedName);
       expect(await errorOf(() => OfflineNavigation.installRegionMapFromFile('Tanzania', '/nonexistent')),
@@ -135,12 +175,7 @@ void main() {
           MapInstallError.fileNotFound);
 
       // A wrong checksum must be rejected and must leave nothing behind.
-      expect(
-          await errorOf(() => OfflineNavigation.installRegionMap(RegionMapSource(
-              id: 'wronghash',
-              url: Uri.parse(_url),
-              sha256: '0' * 64,
-              sizeBytes: _size > 0 ? _size : null))),
+      expect(await errorOf(() => _installRegion(id: 'wronghash', sha256: '0' * 64)),
           MapInstallError.checksumMismatch);
       expect(await OfflineNavigation.isRegionMapInstalled('wronghash'), isFalse);
 
@@ -159,6 +194,7 @@ void main() {
       NavPoint destination, {
       required bool Function() stop,
       Future<void> Function()? onPreview,
+      bool simulate = true,
     }) async {
       final done = Completer<NavigationResult?>();
       await tester.pumpWidget(MaterialApp(
@@ -172,10 +208,10 @@ void main() {
                       builder: (_) => OfflineNavigationPage(
                         start: start,
                         destination: destination,
-                        options: const NavOptions(
+                        options: NavOptions(
                           mapPolicy: MapPolicy.installedOnly,
-                          simulateRoute: true,
-                          voiceGuidance: false,
+                          simulateRoute: simulate,
+                          voiceGuidance: _voice,
                         ),
                       ),
                     ),
@@ -195,7 +231,13 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
       }
       debugPrint('page shows: ${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).whereType<String>().join(' | ')}');
-      if (onPreview != null && !done.isCompleted) await onPreview();
+      if (onPreview != null && !done.isCompleted) {
+        // The loop above stops the moment the route is shown, with the page still sliding in (iOS pushes a page over
+        // half a second, and it only moves while the test pumps frames). Let it settle, so a hold, a screenshot or a
+        // person watching sees the real page and not a half-open one.
+        await tester.pump(const Duration(seconds: 1));
+        await onPreview();
+      }
       return done.isCompleted ? done.future : null;
     }
 
@@ -302,6 +344,119 @@ void main() {
         expect(await OfflineNavigation.baseMapsBytesMissing, greaterThan(0));
       }
     });
+
+    // Needs VOICE=true. The route is short and has a turn soon after the start, so a spoken instruction is due.
+    // The test cannot hear it; the host checks the device log (iOS: "offline_navigation: speaking").
+    testWidgets('speaks turn instructions while guiding', (tester) async {
+      await OfflineNavigation.initialize();
+      var guided = false;
+      await runPage(
+        tester,
+        _seronera,
+        _viboko,
+        stop: () => find.text('Start navigation').evaluate().isNotEmpty,
+        onPreview: () async {
+          await tester.pump(const Duration(seconds: 1));
+          await tester.tap(find.text('Start navigation'));
+          for (var i = 0; i < 200 && find.text('End').evaluate().isEmpty; i++) {
+            await tester.pump(const Duration(milliseconds: 100));
+          }
+          // About 15 m/s simulated: the first turn is reached well within this.
+          await tester.pump(const Duration(seconds: 90));
+          guided = find.text('End').evaluate().isNotEmpty;
+          debugPrint('VOICE_GUIDANCE_DONE');
+          if (guided) await tester.tap(find.text('End'));
+          await tester.pump(const Duration(seconds: 1));
+        },
+      );
+      expect(guided, isTrue);
+    }, skip: !_voice);
+
+    String pageTexts(WidgetTester tester) =>
+        tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).whereType<String>().join(' | ');
+
+    // The drive keeps going when the app is not on the screen: the host (or a person) presses Home, locks the phone,
+    // waits, unlocks and opens the app again between BACKGROUND_TEST_STARTED and BACKGROUND_TEST_DONE. Needs the
+    // audio + location background modes in the host app, which the example has. The map must draw again afterwards;
+    // the host takes a screenshot a few seconds after BACKGROUND_TEST_DONE to see it.
+    testWidgets('keeps guiding while the app is in the background', (tester) async {
+      await OfflineNavigation.initialize();
+      String? before;
+      String? after;
+      await runPage(
+        tester,
+        _seronera,
+        _viboko,
+        stop: () => find.text('Start navigation').evaluate().isNotEmpty,
+        onPreview: () async {
+          await tester.pump(const Duration(seconds: 1));
+          await tester.tap(find.text('Start navigation'));
+          for (var i = 0; i < 200 && find.text('End').evaluate().isEmpty; i++) {
+            await tester.pump(const Duration(milliseconds: 100));
+          }
+          await tester.pump(const Duration(seconds: 3));
+          before = pageTexts(tester);
+          debugPrint('BACKGROUND_TEST_STARTED guidance: $before');
+          // Plain delays, not pumps: a pump waits for a frame and the app draws none while it is in the background.
+          final watch = Stopwatch()..start();
+          while (watch.elapsed.inSeconds < _backgroundSeconds) {
+            await Future<void>.delayed(const Duration(seconds: 10));
+            debugPrint('BACKGROUND_TICK ${watch.elapsed.inSeconds}s');
+          }
+          // Back on the screen: the page must be drawing and updating again.
+          await tester.pump(const Duration(seconds: 2));
+          after = pageTexts(tester);
+          debugPrint('BACKGROUND_TEST_DONE guidance: $after');
+          // Hold still so the host can take its screenshot of the page and the map.
+          await tester.pump(const Duration(seconds: 8));
+          expect(find.text('End'), findsOneWidget);
+          await tester.tap(find.text('End'));
+          await tester.pump(const Duration(seconds: 1));
+        },
+      );
+      expect(before, isNotNull, reason: 'the drive never started');
+      expect(after, contains('End'));
+      expect(after, isNot(equals(before)), reason: 'the guidance did not move while the app was away');
+    }, skip: _backgroundSeconds == 0);
+
+    // The real thing a driver uses: no simulated drive, the engine follows the device's location. The host puts the
+    // device at the start before the test and feeds it positions along the road after GPS_GUIDANCE_STARTED. The
+    // guidance has to change as the device moves, and the page must still be guiding at the end.
+    testWidgets('follows the device location when the drive is not simulated', (tester) async {
+      await OfflineNavigation.initialize();
+      String? before;
+      String? after;
+      final result = await runPage(
+        tester,
+        _naabiHill,
+        _seronera,
+        simulate: false,
+        stop: () => find.text('Start navigation').evaluate().isNotEmpty,
+        onPreview: () async {
+          await tester.pump(const Duration(seconds: 1));
+          await tester.tap(find.text('Start navigation'));
+          for (var i = 0; i < 200 && find.text('End').evaluate().isEmpty; i++) {
+            await tester.pump(const Duration(milliseconds: 100));
+          }
+          await tester.pump(const Duration(seconds: 3));
+          before = pageTexts(tester);
+          debugPrint('GPS_GUIDANCE_STARTED guidance: $before');
+          for (var waited = 0; waited < _gpsSeconds; waited += 10) {
+            await tester.pump(const Duration(seconds: 10));
+            debugPrint('GPS_TICK ${waited + 10}s guidance: ${pageTexts(tester)}');
+          }
+          after = pageTexts(tester);
+          debugPrint('GPS_GUIDANCE_DONE guidance: $after');
+          if (find.text('End').evaluate().isNotEmpty) {
+            await tester.tap(find.text('End'));
+          }
+          await tester.pump(const Duration(seconds: 1));
+        },
+      );
+      expect(before, isNotNull, reason: 'no route preview, or the location permission was refused; page result: $result');
+      expect(before, contains('End'));
+      expect(after, isNot(equals(before)), reason: 'the device moved but the guidance did not follow');
+    }, skip: _gpsSeconds == 0);
 
     testWidgets('reports missing maps instead of downloading outside the region', (tester) async {
       await OfflineNavigation.initialize();

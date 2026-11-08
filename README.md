@@ -34,12 +34,16 @@ fully offline.
    flutter pub add offline_navigation
    ```
 
-   The native Organic Maps engine is downloaded automatically as a prebuilt
-   Android library (~80 MB, one-time) during your next Gradle sync.
+   The native Organic Maps engine comes with the package on iOS (an XCFramework
+   and its data files, about 45 MB added to your app) and is downloaded
+   automatically as a prebuilt Android library (~80 MB, one-time) during your
+   next Gradle sync.
 
-2. Enable core library desugaring in `android/app/build.gradle.kts` (required
-   by the engine on `minSdkVersion < 26`; the build fails with instructions if
-   it is missing):
+### Android
+
+Enable core library desugaring in `android/app/build.gradle.kts` (required
+by the engine on `minSdkVersion < 26`; the build fails with instructions if
+it is missing):
 
    ```kotlin
    android {
@@ -54,19 +58,67 @@ fully offline.
 
 That's it. Asset packaging (`noCompress`) is configured automatically.
 
+### iOS
+
+Needs iOS 15.0 or later. In `ios/Podfile` set the platform and, with Xcode 27,
+the deployment target of all pods (some pods still declare an older one that
+Xcode now rejects):
+
+```ruby
+platform :ios, '15.0'
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    flutter_additional_ios_build_settings(target)
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+    end
+  end
+end
+```
+
+Add the location usage text to `ios/Runner/Info.plist` (without it iOS never
+shows the permission prompt, so guidance cannot use the GPS):
+
+```xml
+<key>NSLocationWhenInUseUsageDescription</key>
+<string>Your position is shown on the map and used for turn-by-turn directions.</string>
+```
+
+To keep guiding when the screen is locked or the app is in the background, also
+add the `location` background mode (the plugin turns background updates on only
+when the app declares it) and the `audio` mode, which lets the spoken turn
+instructions play with the screen locked:
+
+```xml
+<key>UIBackgroundModes</key>
+<array>
+  <string>location</string>
+  <string>audio</string>
+</array>
+```
+
+The location mode is what keeps the app running while it guides, so it applies
+to real guidance. A simulated drive (`simulateRoute: true`) has no location
+updates to keep it alive: iOS suspends the app a few seconds after it leaves the
+screen, and the drive carries on from where it was when the app comes back.
+
+The iOS simulator runs on Apple Silicon (arm64) only; there is no Intel
+simulator slice.
+
 ## Permissions
 
-The plugin declares the location permissions it needs (they merge into your
-app's manifest automatically) and requests location access at runtime when
-turn-by-turn guidance starts. No manifest edits are required on your side.
-Simulated guidance (`NavOptions(simulateRoute: true)`) needs no location access,
-which is handy for demos and tests.
+On Android the plugin declares the location permissions it needs (they merge
+into your app's manifest automatically); on iOS see the `Info.plist` key
+above. Location access is requested at runtime when turn-by-turn guidance
+starts. Simulated guidance (`NavOptions(simulateRoute: true)`) needs no
+location access, which is handy for demos and tests.
 
 ## Platform support
 
 | Android | iOS |
 |---|---|
-| ✅ (minSdk 21) | Planned |
+| ✅ (minSdk 21) | ✅ (iOS 15.0, arm64 devices and Apple Silicon simulators) |
 
 ## How it works
 
@@ -74,8 +126,9 @@ The Organic Maps map surface is embedded in your widget tree via a platform
 view, while all navigation UI (instruction banner, lane hints, ETA bar,
 download and preview screens) is drawn in Flutter and fed by native event
 streams. The engine — rendering, routing, and map management — is the same
-C++ core that powers the Organic Maps app, consumed as a prebuilt AAR
-(`io.github.fred-apina:organicmaps-sdk`).
+C++ core that powers the Organic Maps app, consumed as a prebuilt AAR on
+Android (`io.github.fred-apina:organicmaps-sdk`) and as a prebuilt XCFramework
+(`OfflineNavEngine`) on iOS. Both are built from the same engine fork.
 
 ## Region maps: navigation where there is no internet
 
