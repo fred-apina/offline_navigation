@@ -222,7 +222,13 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
       }
       debugPrint('page shows: ${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).whereType<String>().join(' | ')}');
-      if (onPreview != null && !done.isCompleted) await onPreview();
+      if (onPreview != null && !done.isCompleted) {
+        // The loop above stops the moment the route is shown, with the page still sliding in (iOS pushes a page over
+        // half a second, and it only moves while the test pumps frames). Let it settle, so a hold, a screenshot or a
+        // person watching sees the real page and not a half-open one.
+        await tester.pump(const Duration(seconds: 1));
+        await onPreview();
+      }
       return done.isCompleted ? done.future : null;
     }
 
@@ -243,9 +249,6 @@ void main() {
         _viboko,
         stop: () => find.text('Start navigation').evaluate().isNotEmpty,
         onPreview: () async {
-          // The page may still be sliding in (the loop above stops the moment the route is shown, and
-          // iOS pushes a page over half a second): let it settle so the screenshot is of the real page.
-          await tester.pump(const Duration(seconds: 1));
           debugPrint('SHORT_PREVIEW_READY');
           // Hold still: the host takes its screenshot a few seconds after the line above.
           await tester.pump(const Duration(seconds: 10));
