@@ -87,17 +87,19 @@ adds the Central Portal upload.
 
 2. **Publish** (needs the repository secrets `MAVEN_CENTRAL_USERNAME`,
    `MAVEN_CENTRAL_PASSWORD`, `SIGNING_KEY`, `SIGNING_KEY_ID`,
-   `SIGNING_KEY_PASSWORD`). This stages **two** signed deployments, one per
-   module:
+   `SIGNING_KEY_PASSWORD`). This stages the signed modules as one deployment (the
+   log prints a single deployment id):
 
    ```sh
    gh workflow run sdk-publish.yaml -R fred-apina/organicmaps --ref <branch> \
      -f version=<version> -f publish=true
    ```
 
-   Review both at <https://central.sonatype.com/publishing> and press *Publish*
-   on **both** (publishing only one leaves the other missing and breaks every
-   build that resolves the first). Never publish a release candidate version.
+   Open <https://central.sonatype.com/publishing>, check that the deployment lists
+   **both** components (`organicmaps-sdk` and `organicmaps-sdk-location-core`) at
+   the new version, then press *Publish*. If only one is listed, do not publish:
+   the missing module would break every build that resolves the first. Never
+   publish a release candidate version.
    After it completes the artifacts appear on Maven Central within about 10-30
    minutes (the search index can take a few hours). Central deployments are
    immutable: use a new version for every release.
