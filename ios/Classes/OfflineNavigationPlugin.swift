@@ -94,6 +94,15 @@ public final class OfflineNavigationPlugin: NSObject, FlutterPlugin, OfflineNavA
     Int64(Engine.status(ofCountry: countryId))
   }
 
+  func getMapArea(countryId: String) throws -> WireMapArea? {
+    guard Engine.isCountry(countryId), let name = Engine.name(ofCountry: countryId) else { return nil }
+    return WireMapArea(
+      id: countryId,
+      name: name,
+      sizeBytes: Engine.size(ofCountry: countryId),
+      status: Int64(Engine.status(ofCountry: countryId)))
+  }
+
   func startDownload(countryIds: [String]) throws {
     if !countryIds.isEmpty { Engine.startDownload(ofCountries: countryIds) }
   }

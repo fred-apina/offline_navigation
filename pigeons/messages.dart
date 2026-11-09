@@ -61,6 +61,22 @@ class WireRegionMap {
   int sizeBytes;
 }
 
+/// A downloadable map from the engine's country list: a whole country, or one region of a country that the engine
+/// splits (for example `Tanzania_Northern`).
+class WireMapArea {
+  WireMapArea({required this.id, required this.name, required this.sizeBytes, required this.status});
+  String id;
+
+  /// The engine's display name for the area.
+  String name;
+
+  /// Full size of the map file(s), whether or not it is downloaded.
+  int sizeBytes;
+
+  /// Native storage status code (see MapStatus in models.dart).
+  int status;
+}
+
 @HostApi()
 abstract class OfflineNavApi {
   /// Initializes the native map engine; completes when the framework is ready.
@@ -93,6 +109,9 @@ abstract class OfflineNavApi {
 
   /// Native storage status code for the country (see MapStatus in models.dart).
   int getCountryStatus(String countryId);
+
+  /// Name, size and status of a map area, or null when the id is not in the engine's country list.
+  WireMapArea? getMapArea(String countryId);
 
   void startDownload(List<String> countryIds);
 

@@ -4,7 +4,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'offline_navigation'
-  s.version          = '0.3.0'
+  s.version          = '0.3.1'
   s.summary          = 'Offline turn-by-turn navigation powered by the Organic Maps engine.'
   s.description      = <<-DESC
 Drop-in offline turn-by-turn navigation page for Flutter. The map and routing engine is Organic Maps,

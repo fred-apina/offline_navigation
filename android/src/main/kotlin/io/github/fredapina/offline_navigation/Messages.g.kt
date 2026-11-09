@@ -216,6 +216,51 @@ data class WireRegionMap (
 
   override fun hashCode(): Int = toList().hashCode()
 }
+
+/**
+ * A downloadable map from the engine's country list: a whole country, or one region of a country that the engine
+ * splits (for example `Tanzania_Northern`).
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class WireMapArea (
+  val id: String,
+  /** The engine's display name for the area. */
+  val name: String,
+  /** Full size of the map file(s), whether or not it is downloaded. */
+  val sizeBytes: Long,
+  /** Native storage status code (see MapStatus in models.dart). */
+  val status: Long
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): WireMapArea {
+      val id = pigeonVar_list[0] as String
+      val name = pigeonVar_list[1] as String
+      val sizeBytes = pigeonVar_list[2] as Long
+      val status = pigeonVar_list[3] as Long
+      return WireMapArea(id, name, sizeBytes, status)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      id,
+      name,
+      sizeBytes,
+      status,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other !is WireMapArea) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    return MessagesPigeonUtils.deepEquals(toList(), other.toList())  }
+
+  override fun hashCode(): Int = toList().hashCode()
+}
 private open class MessagesPigeonCodec : StandardMessageCodec() {
   override fun readValueOfType(type: Byte, buffer: ByteBuffer): Any? {
     return when (type) {
@@ -239,6 +284,11 @@ private open class MessagesPigeonCodec : StandardMessageCodec() {
           WireRegionMap.fromList(it)
         }
       }
+      133.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          WireMapArea.fromList(it)
+        }
+      }
       else -> super.readValueOfType(type, buffer)
     }
   }
@@ -258,6 +308,10 @@ private open class MessagesPigeonCodec : StandardMessageCodec() {
       }
       is WireRegionMap -> {
         stream.write(132)
+        writeValue(stream, value.toList())
+      }
+      is WireMapArea -> {
+        stream.write(133)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -290,6 +344,8 @@ interface OfflineNavApi {
   fun resolveCountry(latitude: Double, longitude: Double): String?
   /** Native storage status code for the country (see MapStatus in models.dart). */
   fun getCountryStatus(countryId: String): Long
+  /** Name, size and status of a map area, or null when the id is not in the engine's country list. */
+  fun getMapArea(countryId: String): WireMapArea?
   fun startDownload(countryIds: List<String>)
   fun cancelDownload(countryIds: List<String>)
   fun buildRoute(start: WirePoint, destination: WirePoint, mode: WireTravelMode, callback: (Result<WireRouteBuildResult>) -> Unit)
@@ -485,6 +541,23 @@ interface OfflineNavApi {
             val countryIdArg = args[0] as String
             val wrapped: List<Any?> = try {
               listOf(api.getCountryStatus(countryIdArg))
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.offline_navigation.OfflineNavApi.getMapArea$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val countryIdArg = args[0] as String
+            val wrapped: List<Any?> = try {
+              listOf(api.getMapArea(countryIdArg))
             } catch (exception: Throwable) {
               MessagesPigeonUtils.wrapError(exception)
             }

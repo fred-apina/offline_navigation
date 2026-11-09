@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 
 import 'channels.dart';
+import 'map_areas.dart';
 import 'models.dart';
 import 'region_map_download.dart';
 import 'region_maps.dart';
@@ -224,6 +225,157 @@ class OfflineNavigation {
     }
     await _initializeForInstall();
     await _call(() => NavChannel.removeRegionMap(id));
+  }
+
+  // ── Map areas (the engine's own country list) ────────────────
+
+  /// The downloadable map that covers a point, or null where there is none (open sea). In a country the engine
+  /// splits into regions this is the region, not the country: for a point in Arusha it is `Tanzania_Northern`
+  /// (105 MB), not all of Tanzania.
+  ///
+  /// Use it to offer "Download Northern Tanzania" ahead of a trip, then call [downloadMapArea].
+  ///
+  /// Throws a [MapInstallException] when the engine cannot start.
+  static Future<MapArea?> mapAreaAt(double latitude, double longitude) async {
+    await _initializeForInstall();
+    final id = await NavChannel.resolveCountry(latitude, longitude);
+    if (id == null || id.isEmpty) return null;
+    return mapArea(id);
+  }
+
+  /// The map area with this id, or null when the engine has no such id. Ids come from [mapAreaAt] and
+  /// [MapArea.id], and from [NavigationResult.missingMaps].
+  static Future<MapArea?> mapArea(String id) async {
+    await _initializeForInstall();
+    final wire = await NavChannel.getMapArea(id);
+    return wire == null ? null : MapArea.fromWire(wire);
+  }
+
+  /// What [OfflineNavigationPage] would download for a trip with [MapPolicy.autoDownloadCountry]: the map areas at
+  /// its two ends that are not on the device, and, with [includeBaseMaps], the base world map on first run. Nothing
+  /// is downloaded. Use it to show the user the size before you push the page, or to download ahead of time.
+  ///
+  /// It looks at the two ends only. A long trip can pass through areas between them; the page finds those out when
+  /// it builds the route (see [NavOptions.askBeforeDownload]).
+  ///
+  /// Throws a [MapInstallException] when the engine cannot start.
+  static Future<MapDownloadPlan> planDownload({
+    required NavPoint start,
+    required NavPoint destination,
+    bool includeBaseMaps = true,
+  }) async {
+    final areas = <String, MapArea>{};
+    for (final point in [start, destination]) {
+      final area = await mapAreaAt(point.latitude, point.longitude);
+      if (area != null && !area.isDownloaded) areas[area.id] = area;
+    }
+    final base = includeBaseMaps ? await NavChannel.getBaseMapBytes() : 0;
+    // Negative values are engine errors, not sizes.
+    return MapDownloadPlan(areas: areas.values.toList(), baseMapsBytes: base > 0 ? base : 0);
+  }
+
+  static Future<void> _areaDownloads = Future<void>.value();
+
+  /// Downloads a map area from the map server and installs it. Routing and the map use it right away. Completes
+  /// at once when the area is already on the device. [onProgress] gets the bytes of the area received so far.
+  ///
+  /// The download resumes after an interruption, and a [cancelToken] cancels it (the partial file is kept for the
+  /// next attempt). Areas are downloaded one at a time: a second call waits for the first.
+  ///
+  /// Do not call it while an [OfflineNavigationPage] is downloading, or while [ensureBaseMaps] is: they share the
+  /// engine's one download-progress stream, so each would lose the other's progress.
+  ///
+  /// [id] is a [MapArea.id]. Giving the id of a whole country that the engine splits downloads all its regions.
+  ///
+  /// Throws a [MapInstallException]: [MapInstallError.invalidId] for an id the engine does not know,
+  /// [MapInstallError.notEnoughSpace], [MapInstallError.downloadFailed] and [MapInstallError.cancelled].
+  static Future<void> downloadMapArea(
+    String id, {
+    void Function(MapInstallProgress progress)? onProgress,
+    MapInstallCancelToken? cancelToken,
+  }) {
+    final previous = _areaDownloads;
+    final result = Completer<void>();
+    _areaDownloads = result.future.catchError((Object _) {});
+    () async {
+      try {
+        await previous;
+        await _downloadMapArea(id, onProgress, cancelToken);
+        result.complete();
+      } catch (e, st) {
+        result.completeError(e, st);
+      }
+    }();
+    return result.future;
+  }
+
+  static Future<void> _downloadMapArea(
+    String id,
+    void Function(MapInstallProgress progress)? onProgress,
+    MapInstallCancelToken? cancelToken,
+  ) async {
+    await _initializeForInstall();
+    if (cancelToken?.isCancelled ?? false) {
+      throw const MapInstallException(MapInstallError.cancelled, 'The download was cancelled');
+    }
+    final area = await mapArea(id);
+    if (area == null) {
+      throw MapInstallException(MapInstallError.invalidId, 'The engine has no map area "$id"');
+    }
+    if (area.isDownloaded) return;
+
+    final free = await _call(() => NavChannel.getFreeSpaceBytes());
+    if (free < area.sizeBytes + 16 * 1024 * 1024) {
+      throw const MapInstallException(MapInstallError.notEnoughSpace, 'Not enough free storage space');
+    }
+
+    final done = Completer<void>();
+    void finish([Object? error]) {
+      if (done.isCompleted) return;
+      error == null ? done.complete() : done.completeError(error);
+    }
+
+    final sub = NavChannel.downloadEvents().listen((event) {
+      if (event.countryId != id) return;
+      if (event.status == MapStatus.failed) {
+        finish(MapInstallException(MapInstallError.downloadFailed, 'Downloading "${area.name}" failed'));
+      } else if (MapStatus.isDownloaded(event.status)) {
+        onProgress?.call(MapInstallProgress(bytesReceived: area.sizeBytes, totalBytes: area.sizeBytes));
+        finish();
+      } else if (event.progress >= 0) {
+        onProgress?.call(MapInstallProgress(
+          bytesReceived: (area.sizeBytes * event.progress / 100).round(),
+          totalBytes: area.sizeBytes,
+        ));
+      }
+    });
+    // The status is also asked for every few seconds: the events of a group of areas, or one missed while another
+    // download took over the event stream, would otherwise leave this waiting for ever.
+    final poll = Timer.periodic(const Duration(seconds: 3), (_) async {
+      try {
+        final status = await NavChannel.getCountryStatus(id);
+        if (MapStatus.isDownloaded(status)) finish();
+        if (status == MapStatus.failed) {
+          finish(MapInstallException(MapInstallError.downloadFailed, 'Downloading "${area.name}" failed'));
+        }
+      } catch (_) {
+        // The next tick asks again.
+      }
+    });
+    void onCancel() {
+      unawaited(NavChannel.cancelDownload([id]));
+      finish(const MapInstallException(MapInstallError.cancelled, 'The download was cancelled'));
+    }
+
+    cancelToken?.addListener(onCancel);
+    try {
+      await _call(() => NavChannel.startDownload([id]));
+      await done.future;
+    } finally {
+      poll.cancel();
+      cancelToken?.removeListener(onCancel);
+      await sub.cancel();
+    }
   }
 
   // ── Internals ────────────────────────────────────────────────

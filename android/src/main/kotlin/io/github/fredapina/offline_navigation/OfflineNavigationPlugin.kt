@@ -8,6 +8,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import app.organicmaps.sdk.Framework
+import app.organicmaps.sdk.downloader.CountryItem
 import app.organicmaps.sdk.downloader.MapManager
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
@@ -93,15 +94,32 @@ class OfflineNavigationPlugin :
   override fun resolveCountry(latitude: Double, longitude: Double): String? =
     MapManager.nativeFindCountry(latitude, longitude)
 
+  // The engine aborts the process for an id that is not in its country list, so every call that takes an id from
+  // outside asks first (nativeIsNode).
   override fun getCountryStatus(countryId: String): Long =
-    MapManager.nativeGetStatus(countryId).toLong()
+    if (MapManager.nativeIsNode(countryId)) MapManager.nativeGetStatus(countryId).toLong()
+    else CountryItem.STATUS_UNKNOWN.toLong()
+
+  override fun getMapArea(countryId: String): WireMapArea? {
+    if (!MapManager.nativeIsNode(countryId)) return null
+    val item = CountryItem(countryId)
+    MapManager.nativeGetAttributes(item)
+    return WireMapArea(
+      id = countryId,
+      name = item.name ?: countryId,
+      // `totalSize` is the size of the whole node: the file of a region, the sum of the regions of a group.
+      sizeBytes = item.totalSize,
+      status = item.status.toLong(),
+    )
+  }
 
   override fun startDownload(countryIds: List<String>) {
-    if (countryIds.isNotEmpty()) MapManager.startDownload(*countryIds.toTypedArray())
+    val known = countryIds.filter { MapManager.nativeIsNode(it) }
+    if (known.isNotEmpty()) MapManager.startDownload(*known.toTypedArray())
   }
 
   override fun cancelDownload(countryIds: List<String>) {
-    countryIds.forEach { MapManager.nativeCancel(it) }
+    countryIds.filter { MapManager.nativeIsNode(it) }.forEach { MapManager.nativeCancel(it) }
   }
 
   override fun buildRoute(

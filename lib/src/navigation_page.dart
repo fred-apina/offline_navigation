@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show PlatformException;
 
 import 'channels.dart';
+import 'engine.dart';
+import 'map_areas.dart';
 import 'map_view.dart';
 import 'models.dart';
 import 'turn_icons.dart';
@@ -48,7 +50,7 @@ class OfflineNavigationPage extends StatefulWidget {
   State<OfflineNavigationPage> createState() => _OfflineNavigationPageState();
 }
 
-enum _Phase { initializing, downloading, buildingRoute, preview, navigating, error }
+enum _Phase { initializing, confirmDownload, downloading, buildingRoute, preview, navigating, error }
 
 class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
   _Phase _phase = _Phase.initializing;
@@ -57,6 +59,10 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
 
   // Download state.
   final List<String> _countriesToDownload = [];
+  // Names and sizes of the map areas seen so far, for the screens that tell the user what is downloaded.
+  final Map<String, MapArea> _areas = {};
+  MapDownloadPlan? _plan;
+  Completer<bool>? _confirmCompleter;
   int _downloadProgress = 0;
   bool _downloadingBaseMaps = false;
   StreamSubscription<MapDownloadEvent>? _downloadSub;
@@ -79,6 +85,8 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
 
   @override
   void dispose() {
+    _confirmCompleter?.complete(false);
+    _confirmCompleter = null;
     _slowBuildTimer?.cancel();
     _downloadSub?.cancel();
     _guidanceSub?.cancel();
@@ -103,6 +111,7 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
       _setStatus('Initializing map engine…');
       await NavChannel.initialize();
       setState(() => _mapReady = true);
+      if (!_installedOnly && widget.options.askBeforeDownload && !await _confirmTripDownloads()) return;
       if (!await _ensureBaseMaps()) return;
       if (_installedOnly) {
         // No country lookup and no downloads: route with what is on the device.
@@ -205,6 +214,57 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
     _fail(message, retry: retry, failure: NavigationFailure.downloadFailed);
   }
 
+  /// With [NavOptions.askBeforeDownload]: shows what the trip needs and how big it is, and waits for the answer.
+  /// Returns false when the user declined (the page is closing).
+  Future<bool> _confirmTripDownloads() async {
+    _setStatus('Checking offline maps…');
+    final plan = await OfflineNavigation.planDownload(start: widget.start, destination: widget.destination);
+    for (final area in plan.areas) {
+      _areas[area.id] = area;
+    }
+    if (plan.isEmpty) return true;
+    return _confirm(plan);
+  }
+
+  Future<bool> _confirm(MapDownloadPlan plan) {
+    _confirmCompleter?.complete(false);
+    final completer = _confirmCompleter = Completer<bool>();
+    setState(() {
+      _plan = plan;
+      _phase = _Phase.confirmDownload;
+    });
+    return completer.future;
+  }
+
+  void _answerConfirm(bool yes) {
+    final completer = _confirmCompleter;
+    if (completer == null) return;
+    _confirmCompleter = null;
+    completer.complete(yes);
+    if (!yes) _close(const NavigationResult(NavigationOutcome.cancelledByUser));
+  }
+
+  /// Remembers the name and size of each area, so the progress screen can say what is downloading.
+  Future<void> _rememberAreas(Iterable<String> ids) async {
+    for (final id in ids) {
+      if (_areas.containsKey(id)) continue;
+      try {
+        final wire = await NavChannel.getMapArea(id);
+        if (wire != null) _areas[id] = MapArea.fromWire(wire);
+      } catch (_) {
+        // The id is shown as it is.
+      }
+    }
+  }
+
+  String get _downloadLabel {
+    if (_downloadingBaseMaps) return 'World base map (first run)';
+    return _countriesToDownload.map((id) {
+      final area = _areas[id];
+      return area == null ? id : '${area.name} (${formatMapSize(area.sizeBytes)})';
+    }).join(', ');
+  }
+
   Future<void> _ensureMaps() async {
     _setStatus('Checking offline maps…');
     final needed = <String>{};
@@ -221,6 +281,7 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
       return;
     }
 
+    await _rememberAreas(needed);
     _countriesToDownload
       ..clear()
       ..addAll(needed);
@@ -306,6 +367,14 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
       }
       if (result.missingMaps.isNotEmpty) {
         // The route crosses regions we don't have yet — download them and retry.
+        await _rememberAreas(result.missingMaps);
+        if (widget.options.askBeforeDownload) {
+          final plan = MapDownloadPlan(areas: [
+            for (final id in result.missingMaps)
+              if (_areas[id] != null) _areas[id]!,
+          ]);
+          if (!plan.isEmpty && !await _confirm(plan)) return;
+        }
         _countriesToDownload
           ..clear()
           ..addAll(result.missingMaps);
@@ -457,11 +526,15 @@ class _OfflineNavigationPageState extends State<OfflineNavigationPage> {
               : null,
           onCancel: _cancelRouteBuild,
         );
+      case _Phase.confirmDownload:
+        return _ConfirmDownloadPanel(
+          plan: _plan!,
+          onConfirm: () => _answerConfirm(true),
+          onCancel: () => _answerConfirm(false),
+        );
       case _Phase.downloading:
         return _DownloadPanel(
-          label: _downloadingBaseMaps
-              ? 'World base map (first run)'
-              : _countriesToDownload.join(', '),
+          label: _downloadLabel,
           progress: _downloadProgress,
           onCancel: _cancelDownload,
         );
@@ -535,6 +608,75 @@ class _CenteredStatus extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ConfirmDownloadPanel extends StatelessWidget {
+  const _ConfirmDownloadPanel({required this.plan, required this.onConfirm, required this.onCancel});
+
+  final MapDownloadPlan plan;
+  final VoidCallback onConfirm;
+  final VoidCallback onCancel;
+
+  /// From this size on the panel suggests Wi-Fi.
+  static const int _largeBytes = 50 * 1000 * 1000;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    Widget row(String label, String size, {bool bold = false}) {
+      final style = bold ? theme.textTheme.titleSmall : theme.textTheme.bodyMedium;
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          children: [
+            Expanded(child: Text(label, style: style)),
+            Text(size, style: style),
+          ],
+        ),
+      );
+    }
+
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: _BottomCard(
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.download_for_offline_outlined),
+              const SizedBox(width: 12),
+              Expanded(child: Text('Download offline maps?', style: theme.textTheme.titleMedium)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text('This trip needs maps that are not on your device yet.', style: theme.textTheme.bodySmall),
+          ),
+          const SizedBox(height: 12),
+          for (final area in plan.areas) row(area.name, formatMapSize(area.sizeBytes)),
+          if (plan.baseMapsBytes > 0) row('World base map (first run)', formatMapSize(plan.baseMapsBytes)),
+          const Divider(height: 16),
+          row('Total', formatMapSize(plan.totalBytes), bold: true),
+          if (plan.totalBytes >= _largeBytes) ...[
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text('A large download: use Wi-Fi if you can.', style: theme.textTheme.bodySmall),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(onPressed: onCancel, child: const Text('Cancel')),
+              const SizedBox(width: 8),
+              FilledButton(onPressed: onConfirm, child: const Text('Download')),
+            ],
+          ),
+        ],
       ),
     );
   }

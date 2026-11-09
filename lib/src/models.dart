@@ -25,14 +25,21 @@ enum TravelMode { drive, walk, cycle }
 
 /// Where [OfflineNavigationPage] gets its map data from.
 enum MapPolicy {
-  /// Default. If the maps for the route are missing, the page downloads the
-  /// map of the country the route is in (and the base world map on first run),
-  /// showing a progress screen.
+  /// Default. If the maps for the route are missing, the page downloads them and shows a progress screen: the map
+  /// area each end of the route is in, and the base world map (72 MB) on first run.
+  ///
+  /// A "map area" is a country, or a region of one where Organic Maps splits the country: Tanzania is seven regions
+  /// of 19 to 175 MB, so a trip inside one region downloads that region and not the country's 585 MB; most other
+  /// countries are a single file. A route that runs into another area makes the page download that one too and carry
+  /// on. (The name says "country" for compatibility; it downloads areas.)
+  ///
+  /// To show what will be downloaded, and its size, before anything is, set [NavOptions.askBeforeDownload]. To
+  /// download areas ahead of time, see [OfflineNavigation.mapAreaAt] and [OfflineNavigation.downloadMapArea].
   autoDownloadCountry,
 
   /// Never use the network for map data. The page routes only with maps that
   /// are already on the device: the maps installed with
-  /// [OfflineNavigation.installRegionMap] or by an earlier country download.
+  /// [OfflineNavigation.installRegionMap] or by an earlier download of a map area.
   /// It needs no base world map (72 MB): the map is drawn from the installed
   /// maps and is blank outside them, so use this for navigation that stays
   /// inside them.
@@ -52,6 +59,7 @@ class NavOptions {
     this.voiceGuidance = true,
     this.simulateRoute = false,
     this.mapPolicy = MapPolicy.autoDownloadCountry,
+    this.askBeforeDownload = false,
   });
 
   /// Speak turn-by-turn instructions using the device's text-to-speech engine.
@@ -63,6 +71,14 @@ class NavOptions {
 
   /// Whether the page may download map data. See [MapPolicy].
   final MapPolicy mapPolicy;
+
+  /// With [MapPolicy.autoDownloadCountry]: before downloading anything, show which map areas the trip needs and how
+  /// big they are, and wait for the user to confirm. Cancelling closes the page with
+  /// [NavigationOutcome.cancelledByUser]. The question is asked again if the route turns out to need more areas.
+  /// Off by default, which downloads straight away. Ignored with [MapPolicy.installedOnly].
+  ///
+  /// For your own screen instead, call [OfflineNavigation.planDownload] first.
+  final bool askBeforeDownload;
 }
 
 /// Why the navigation page was closed.
