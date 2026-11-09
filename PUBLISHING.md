@@ -15,6 +15,28 @@ This library has three artifacts:
 Most releases only touch (3). You only redo (1) and (2) when updating the engine,
 and they must be built from the same engine commit.
 
+## Before every engine release: check the map mirrors
+
+Map downloads go to the servers listed in `DEFAULT_URLS_JSON` in the engine fork's
+`private.h` (`METASERVER_URL` is empty on purpose: the meta server upstream names
+answers in a format the engine cannot read, and the engine then fell back to a
+list with dead mirrors, which made downloads fail, see the 0.3.1 changelog). A
+mirror that does not have the current data version answers 404 and costs every
+download one of its servers, so check each one before a release and after the
+data version changes (`<version>` is the engine's data version, for example
+`260714`, see `OfflineNavigation.engineDataVersion`):
+
+```sh
+for host in cdn cdn-us1 cdn-fi3 cdn-de2 cdn-de3; do
+  for file in World WorldCoasts Tanzania_Northern; do
+    printf '%s %s ' $host $file
+    curl -s -o /dev/null -r 0-1023 -w '%{http_code}\n' "https://$host.organicmaps.app/maps/<version>/$file.mwm"
+  done
+done
+```
+
+Every line must say `206`. Take a mirror that says anything else out of the list.
+
 ---
 
 ## One-time setup
@@ -112,10 +134,10 @@ To try the engine locally before any of that, in the fork's `android` folder (JD
 
 ```sh
 ./gradlew :sdk:publishToMavenLocal :sdk:location:core:publishToMavenLocal \
-  -PsdkVersion=0.3.0-local -Parm64-v8a --no-configuration-cache
+  -PsdkVersion=0.3.1-local -Parm64-v8a --no-configuration-cache
 ```
 
-then put `offlineNavigation.sdkVersion=0.3.0-local` in the example app's
+then put `offlineNavigation.sdkVersion=0.3.1-local` in the example app's
 `android/gradle.properties` (do not commit it). `-Parm64-v8a` builds one ABI in a
 couple of minutes. The older `tool/publish_sdk_aar.sh` and
 `tool/organicmaps-sdk.build.gradle.kts.reference` belong to the previous local

@@ -1,3 +1,32 @@
+## 0.3.1 (unreleased)
+
+* **Downloads fixed.** In 0.3.0 every map download started by trying two mirrors
+  that answer HTTP 404 for every file (they were the engine's built-in fallback:
+  the meta server it asks for a server list answers in a format the engine no
+  longer reads). One live server was left, so a single dropped connection failed
+  the whole file: on an emulator a 105 MB region took seven retries, and a first
+  base-map download failed outright. The engine now uses the five mirrors that
+  serve the current data version and no meta server.
+* **The page no longer waits for ever** when something asks how much of the base
+  map is missing while it downloads (`OfflineNavigation.baseMapsBytesMissing`).
+  The engine's query dropped the download in progress without telling anyone; it
+  now answers from the download's own counters, on Android and iOS.
+* **Ids the engine does not know no longer abort the app.** The calls that take a
+  map id from outside now check it first.
+* **Show the size before downloading:** `NavOptions(askBeforeDownload: true)`
+  lists the areas and their sizes and waits for a confirmation, again if the
+  route needs more. The progress screen names the area and its size instead of an
+  id.
+* **Download ahead of time:** `OfflineNavigation.mapAreaAt`, `mapArea`,
+  `planDownload` and `downloadMapArea` (new types `MapArea`, `MapDownloadPlan`,
+  `formatMapSize`). The README explains what the default flow downloads: a region
+  where the engine splits the country (Tanzania is seven regions of 19 to
+  175 MB), otherwise the country. `MapPolicy.autoDownloadCountry` keeps its name;
+  its documentation now says "areas".
+* Tests: `example/integration_test/map_areas_test.dart`.
+* Needs the 0.3.1 Android library (`organicmaps-sdk` 0.3.1) and the engine
+  framework rebuilt from the same fork commit.
+
 ## 0.3.0 (unreleased)
 
 * **iOS support** (iOS 15.0 or later, arm64 devices and Apple Silicon simulators).

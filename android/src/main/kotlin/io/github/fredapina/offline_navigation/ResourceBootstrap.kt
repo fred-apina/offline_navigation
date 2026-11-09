@@ -22,23 +22,37 @@ object ResourceBootstrap {
 
   private var pendingCallback: ((Result<Unit>) -> Unit)? = null
   private var totalBytes: Int = 0
+  private var downloadedBytes: Int = 0
 
-  /** Bytes still missing (0 = base maps present); negative values are engine errors. */
-  fun bytesToDownload(): Int = DownloadResourcesLegacyActivity.nativeGetBytesToDownload()
+  /**
+   * Bytes still missing (0 = base maps present); negative values are engine errors.
+   *
+   * While our own download runs this answers from what the download knows. The engine's own query starts by dropping
+   * the request that is downloading right now, with no callback: the download just stops and the page waits at its
+   * last percentage for ever. An app that asked how much is missing while the page downloaded would trigger that.
+   */
+  fun bytesToDownload(): Int =
+    if (pendingCallback != null) (totalBytes - downloadedBytes).coerceAtLeast(1)
+    else DownloadResourcesLegacyActivity.nativeGetBytesToDownload()
 
   fun download(callback: (Result<Unit>) -> Unit) {
     if (pendingCallback != null) {
       callback(Result.failure(FlutterError("in_progress", "Base map download already in progress", null)))
       return
     }
+    // The engine's query also builds its list of files to download, so it has to run before the first request; it
+    // must not run once a request is going (see bytesToDownload).
+    val missing = DownloadResourcesLegacyActivity.nativeGetBytesToDownload()
     pendingCallback = callback
-    totalBytes = bytesToDownload().coerceAtLeast(1)
+    totalBytes = missing.coerceAtLeast(1)
+    downloadedBytes = 0
 
     val listener = object : DownloadResourcesLegacyActivity.Listener {
       // NOTE: despite the interface's parameter name, JNI passes CUMULATIVE
       // BYTES downloaded, not a percentage (the OM app feeds it to a progress
       // bar whose max is set to the total byte count).
       override fun onProgress(percent: Int) {
+        downloadedBytes = percent
         val pct = ((percent.toLong() * 100) / totalBytes).toInt().coerceIn(0, 100)
         DownloadEventBus.send(
           mapOf("countryId" to BASE_ID, "status" to 1, "progress" to pct)

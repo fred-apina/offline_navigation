@@ -44,6 +44,9 @@ abstract final class NavChannel {
   static Future<int> getCountryStatus(String countryId) =>
       _api.getCountryStatus(countryId);
 
+  /// Name, size and status of a map area, or null when the id is not in the engine's country list.
+  static Future<WireMapArea?> getMapArea(String countryId) => _api.getMapArea(countryId);
+
   static Future<void> startDownload(List<String> countryIds) =>
       _api.startDownload(countryIds);
 

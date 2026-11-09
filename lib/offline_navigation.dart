@@ -2,9 +2,11 @@
 /// [Organic Maps](https://organicmaps.app) engine and OpenStreetMap data.
 ///
 /// Push an [OfflineNavigationPage] onto your navigator with a start and
-/// destination; it downloads the required country map if missing, builds the
-/// route, shows a preview, then guides turn-by-turn — all fully offline after
-/// the one-time map download — and pops with a [NavigationResult]:
+/// destination; it downloads the map areas the trip needs if they are missing
+/// (a region of a country where the engine splits it, otherwise the country),
+/// builds the route, shows a preview, then guides turn-by-turn — all fully
+/// offline after the one-time map download — and pops with a
+/// [NavigationResult]:
 ///
 /// ```dart
 /// final result = await Navigator.push<NavigationResult>(
@@ -25,6 +27,7 @@
 library;
 
 export 'src/engine.dart' show OfflineNavigation;
+export 'src/map_areas.dart' show MapArea, MapDownloadPlan, formatMapSize;
 export 'src/map_view.dart' show OfflineMapView;
 export 'src/models.dart'
     show

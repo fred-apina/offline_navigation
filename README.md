@@ -4,9 +4,11 @@ Drop-in **offline turn-by-turn navigation** for Flutter, powered by the
 [Organic Maps](https://organicmaps.app) engine and OpenStreetMap data.
 
 Pass a start and destination; the library takes care of the rest — including
-automatically downloading the offline map of the country the route is in (or,
-for places without internet, using a small [region map](#region-maps-navigation-where-there-is-no-internet)
-you installed beforehand):
+automatically downloading the offline map the route needs, which is a region
+of a country where Organic Maps splits it (Tanzania is seven regions of 19 to
+175 MB) and the country otherwise (or, for places without internet, using a
+small [region map](#region-maps-navigation-where-there-is-no-internet) you
+installed beforehand):
 
 ```dart
 final result = await Navigator.push(context, MaterialPageRoute(
@@ -130,11 +132,58 @@ C++ core that powers the Organic Maps app, consumed as a prebuilt AAR on
 Android (`io.github.fred-apina:organicmaps-sdk`) and as a prebuilt XCFramework
 (`OfflineNavEngine`) on iOS. Both are built from the same engine fork.
 
+## What gets downloaded
+
+By default (`MapPolicy.autoDownloadCountry`) the page downloads what the route
+needs, and nothing else:
+
+* the **map area** each end of the route is in. Organic Maps splits some large
+  countries into regions, so a trip inside one region does not need the country:
+  Tanzania is seven regions (Northern 105 MB, Coastal 123 MB, Lake 175 MB, ...),
+  against 585 MB for the whole country in older map data. Most other countries
+  are still a single file (Kenya 296 MB, Uganda 339 MB). A route that runs into
+  another area makes the page download that one too and carry on.
+* the **base world map**, 72 MB, once. It draws the world around the areas.
+
+(The policy is called `autoDownloadCountry` for compatibility; it downloads
+areas.) Measured on an emulator: Arusha to Moshi downloaded 177 MB (base map and
+Northern), then Arusha to Dar es Salaam added only Coastal, 123 MB.
+
+**Show the size first.** `NavOptions(askBeforeDownload: true)` makes the page
+list the areas and their sizes and wait for a "Download" before it fetches
+anything; Cancel closes the page with `NavigationOutcome.cancelledByUser`. It
+asks again if the route turns out to need another area.
+
+**Your own screen**, or downloading ahead of time (the Wi-Fi at the hotel, before
+the trip):
+
+```dart
+// What would this trip download? Nothing is downloaded by asking.
+final plan = await OfflineNavigation.planDownload(start: arusha, destination: moshi);
+print('${plan.areas.map((a) => '${a.name} ${formatMapSize(a.sizeBytes)}')}, '
+    'base map ${formatMapSize(plan.baseMapsBytes)}, total ${formatMapSize(plan.totalBytes)}');
+
+// Which area is this point in? "Download Northern Tanzania" next to a park:
+final area = await OfflineNavigation.mapAreaAt(-3.3869, 36.6830);
+if (area != null && !area.isDownloaded) {
+  await OfflineNavigation.downloadMapArea(
+    area.id,
+    onProgress: (p) => print('${((p.fraction ?? 0) * 100).round()} %'),
+    cancelToken: token, // optional
+  );
+}
+await OfflineNavigation.ensureBaseMaps(); // the 72 MB base map, if you want it
+```
+
+Then open the page with `MapPolicy.installedOnly` for a guarantee that it never
+uses the network. Do not run these while an `OfflineNavigationPage` is
+downloading: they share the engine's one download-progress stream.
+
 ## Region maps: navigation where there is no internet
 
-By default the page downloads the map of the whole *country* a route is in
-(hundreds of MB for large countries). For places with poor or no connectivity
-you can prepare a much smaller map of just the area you need — a national park,
+By default the page downloads the map areas a route needs (see above; up to a
+few hundred MB for a large country). For places with poor or no connectivity
+you can prepare a much smaller map of just the place you need — a national park,
 a city, a campus — **ahead of time**, and navigate there with no network at all.
 
 ```dart

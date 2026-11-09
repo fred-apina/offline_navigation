@@ -210,6 +210,67 @@ class WireRegionMap {
 ;
 }
 
+/// A downloadable map from the engine's country list: a whole country, or one region of a country that the engine
+/// splits (for example `Tanzania_Northern`).
+class WireMapArea {
+  WireMapArea({
+    required this.id,
+    required this.name,
+    required this.sizeBytes,
+    required this.status,
+  });
+
+  String id;
+
+  /// The engine's display name for the area.
+  String name;
+
+  /// Full size of the map file(s), whether or not it is downloaded.
+  int sizeBytes;
+
+  /// Native storage status code (see MapStatus in models.dart).
+  int status;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      id,
+      name,
+      sizeBytes,
+      status,
+    ];
+  }
+
+  Object encode() {
+    return _toList();  }
+
+  static WireMapArea decode(Object result) {
+    result as List<Object?>;
+    return WireMapArea(
+      id: result[0]! as String,
+      name: result[1]! as String,
+      sizeBytes: result[2]! as int,
+      status: result[3]! as int,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! WireMapArea || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(encode(), other.encode());
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => Object.hashAll(_toList())
+;
+}
+
 
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
@@ -230,6 +291,9 @@ class _PigeonCodec extends StandardMessageCodec {
     }    else if (value is WireRegionMap) {
       buffer.putUint8(132);
       writeValue(buffer, value.encode());
+    }    else if (value is WireMapArea) {
+      buffer.putUint8(133);
+      writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
     }
@@ -247,6 +311,8 @@ class _PigeonCodec extends StandardMessageCodec {
         return WireRouteBuildResult.decode(readValue(buffer)!);
       case 132: 
         return WireRegionMap.decode(readValue(buffer)!);
+      case 133: 
+        return WireMapArea.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
     }
@@ -531,6 +597,30 @@ class OfflineNavApi {
       );
     } else {
       return (pigeonVar_replyList[0] as int?)!;
+    }
+  }
+
+  /// Name, size and status of a map area, or null when the id is not in the engine's country list.
+  Future<WireMapArea?> getMapArea(String countryId) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.offline_navigation.OfflineNavApi.getMapArea$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[countryId]);
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_sendFuture as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return (pigeonVar_replyList[0] as WireMapArea?);
     }
   }
 

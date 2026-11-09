@@ -2,13 +2,13 @@ group = "io.github.fredapina.offline_navigation"
 version = "1.0-SNAPSHOT"
 
 // The engine AAR this plugin release is built against: io.github.fred-apina:organicmaps-sdk, which depends on
-// organicmaps-sdk-location-core (both published together). 0.3.0 is built from the same engine fork as the iOS framework
+// organicmaps-sdk-location-core (both published together). 0.3.1 is built from the same engine fork as the iOS framework
 // (the current Organic Maps engine, map data version 260714, plus the region-map patches; the iOS layer sits on top). Development
 // builds can use locally published AARs instead, e.g. in the example app's gradle.properties:
-//   offlineNavigation.sdkVersion=0.3.0-local
-// after `./gradlew :sdk:publishToMavenLocal :sdk:location:core:publishToMavenLocal -PsdkVersion=0.3.0-local` in the
+//   offlineNavigation.sdkVersion=0.3.1-local
+// after `./gradlew :sdk:publishToMavenLocal :sdk:location:core:publishToMavenLocal -PsdkVersion=0.3.1-local` in the
 // engine fork's android folder.
-def omSdkVersion = (rootProject.findProperty("offlineNavigation.sdkVersion") ?: "0.3.0")
+def omSdkVersion = (rootProject.findProperty("offlineNavigation.sdkVersion") ?: "0.3.1")
 
 buildscript {
     ext.kotlin_version = "2.1.0"
