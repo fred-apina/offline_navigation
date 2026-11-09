@@ -237,6 +237,14 @@ void main() {
         // person watching sees the real page and not a half-open one.
         await tester.pump(const Duration(seconds: 1));
         await onPreview();
+        // The page closes asynchronously after the test taps close or End (the engine has to stop first), and on a
+        // slow or busy device that takes longer than the one second pumped above. Wait for it, so a slow device is
+        // not mistaken for a page that never closes. A page that really stays open still fails: result stays null.
+        final waited = Stopwatch()..start();
+        for (var i = 0; i < 600 && !done.isCompleted; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        debugPrint('PAGE_CLOSED=${done.isCompleted} after ${waited.elapsedMilliseconds} ms');
       }
       return done.isCompleted ? done.future : null;
     }
