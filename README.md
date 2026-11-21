@@ -1,70 +1,85 @@
-# offline_navigation
+<h1 align="center">offline_navigation</h1>
 
-Drop-in **offline turn-by-turn navigation** for Flutter, powered by the
-[Organic Maps](https://organicmaps.app) engine and OpenStreetMap data.
+<p align="center">
+  <b>Turn-by-turn navigation for Flutter that keeps working with no internet.</b><br>
+  One page, one call. Android and iOS.
+</p>
 
-Pass a start and destination; the library takes care of the rest — including
-automatically downloading the offline map the route needs, which is a region
-of a country where Organic Maps splits it (Tanzania is seven regions of 19 to
-175 MB) and the country otherwise (or, for places without internet, using a
-small [region map](#region-maps-navigation-where-there-is-no-internet) you
-installed beforehand):
+<p align="center">
+  <a href="https://pub.dev/packages/offline_navigation"><img alt="pub package" src="https://img.shields.io/pub/v/offline_navigation.svg"></a>
+  <img alt="Platforms" src="https://img.shields.io/badge/platforms-android%20%7C%20ios-blue">
+  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-green"></a>
+</p>
+
+<p align="center">
+  <img src="doc/images/hero.png" alt="Map download with progress, route preview with distance and time, and live turn-by-turn guidance" width="760">
+</p>
+
+Pass a start and a destination. The page downloads the offline map the trip needs,
+shows the route, then guides the driver turn by turn, with spoken instructions.
+After the one-time map download it needs no network. It runs on the engine of
+[Organic Maps](https://organicmaps.app) with [OpenStreetMap](https://www.openstreetmap.org) data,
+so there is **no API key, no account and no per-request billing**.
 
 ```dart
-final result = await Navigator.push(context, MaterialPageRoute(
-  builder: (_) => OfflineNavigationPage(
-    start: NavPoint(latitude: -6.1722, longitude: 35.7395, name: 'Dodoma City'),
-    destination: NavPoint(latitude: -6.1841, longitude: 35.9297, name: 'University of Dodoma'),
-    travelMode: TravelMode.drive,
-    options: NavOptions(voiceGuidance: true),
+final result = await Navigator.push<NavigationResult>(
+  context,
+  MaterialPageRoute(
+    builder: (_) => OfflineNavigationPage(
+      start: NavPoint(latitude: 47.3779, longitude: 8.5403, name: 'Zürich HB'),
+      destination: NavPoint(latitude: 47.3763, longitude: 8.5476, name: 'ETH Zürich'),
+    ),
   ),
-));
+);
 // result.outcome: arrived | cancelledByUser | failed
 ```
 
-The navigation page manages its own flow — engine initialization, map
-download with progress UI, route preview with distance/ETA, then live
-turn-by-turn guidance with voice instructions — and pops back to your app
-with a `NavigationResult` when done. Everything after the map download works
-fully offline.
+## Why use it
 
-## Installation
+* **Works offline.** Routing, the map and the voice instructions all run on the device.
+* **A whole navigation flow in one widget.** Engine start, map download with progress,
+  route preview with distance and time, live guidance, lane hints, spoken turns.
+* **Downloads only what the route needs.** A region of a country where the engine splits
+  it, not the whole country. Show the size and ask first with one option.
+* **Drive, walk or cycle.**
+* **Android and iOS, the same API.**
+* **Made for bad connections.** Prepare a small map of one park or city ahead of time and
+  navigate there with the network off: [region maps](doc/region-maps.md).
+* **Easy to demo and test.** A simulated drive needs no GPS.
 
-1. Add the dependency:
+## Quick start
 
-   ```sh
-   flutter pub add offline_navigation
-   ```
+### 1. Add the package
 
-   The native Organic Maps engine comes with the package on iOS (an XCFramework
-   and its data files, about 45 MB added to your app) and is downloaded
-   automatically as a prebuilt Android library (~80 MB, one-time) during your
-   next Gradle sync.
+```sh
+flutter pub add offline_navigation
+```
 
-### Android
+The engine is bundled with your app on iOS (about 45 MB). On Android, Gradle downloads it
+from Maven Central on your first build.
 
-Enable core library desugaring in `android/app/build.gradle.kts` (required
-by the engine on `minSdkVersion < 26`; the build fails with instructions if
-it is missing):
+### 2. Android
 
-   ```kotlin
-   android {
-     compileOptions {
-       isCoreLibraryDesugaringEnabled = true
-     }
-   }
-   dependencies {
-     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
-   }
-   ```
+Turn on core library desugaring in `android/app/build.gradle.kts` (needed when
+`minSdkVersion` is below 26; the build fails with instructions if it is missing):
 
-That's it. Asset packaging (`noCompress`) is configured automatically.
+```kotlin
+android {
+  compileOptions {
+    isCoreLibraryDesugaringEnabled = true
+  }
+}
+dependencies {
+  coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+}
+```
 
-### iOS
+That is all. Location permissions merge into your manifest by themselves, and the
+user is asked for location when guidance starts.
 
-Needs iOS 15.0 or later. In `ios/Podfile` set the platform and, with Xcode 27,
-the deployment target of all pods (some pods still declare an older one that
-Xcode now rejects):
+### 3. iOS
+
+iOS 15.0 or later. In `ios/Podfile`:
 
 ```ruby
 platform :ios, '15.0'
@@ -79,18 +94,16 @@ post_install do |installer|
 end
 ```
 
-Add the location usage text to `ios/Runner/Info.plist` (without it iOS never
-shows the permission prompt, so guidance cannot use the GPS):
+In `ios/Runner/Info.plist`, the text iOS shows when it asks for location (without it the
+prompt never appears and guidance cannot use the GPS):
 
 ```xml
 <key>NSLocationWhenInUseUsageDescription</key>
 <string>Your position is shown on the map and used for turn-by-turn directions.</string>
 ```
 
-To keep guiding when the screen is locked or the app is in the background, also
-add the `location` background mode (the plugin turns background updates on only
-when the app declares it) and the `audio` mode, which lets the spoken turn
-instructions play with the screen locked:
+To keep guiding with the screen locked or the app in the background, add the `location`
+background mode, and the `audio` mode so spoken instructions can play:
 
 ```xml
 <key>UIBackgroundModes</key>
@@ -100,169 +113,208 @@ instructions play with the screen locked:
 </array>
 ```
 
-The location mode is what keeps the app running while it guides, so it applies
-to real guidance. A simulated drive (`simulateRoute: true`) has no location
-updates to keep it alive: iOS suspends the app a few seconds after it leaves the
-screen, and the drive carries on from where it was when the app comes back.
+### 4. Navigate
 
-The iOS simulator runs on Apple Silicon (arm64) only; there is no Intel
-simulator slice.
+Use the snippet at the top of this page. It has two modes:
 
-## Permissions
+* **Real navigation (the default).** Guidance follows the device's GPS, so it is for a
+  real trip. The user is asked for location permission when guidance starts.
+* **Simulated drive.** To test, demo or just see how it works, with no GPS and no
+  movement, add `simulateRoute`. The position marker drives the route for you, with the
+  same route preview and turn instructions.
 
-On Android the plugin declares the location permissions it needs (they merge
-into your app's manifest automatically); on iOS see the `Info.plist` key
-above. Location access is requested at runtime when turn-by-turn guidance
-starts. Simulated guidance (`NavOptions(simulateRoute: true)`) needs no
-location access, which is handy for demos and tests.
+```dart
+OfflineNavigationPage(
+  start: start,
+  destination: destination,
+  options: const NavOptions(simulateRoute: true), // remove it for real navigation
+)
+```
 
-## Platform support
+> **First run:** the page downloads the base world map (72 MB) and the map pieces the trip
+> needs, with a progress screen. Later trips in the same piece download nothing new.
+> After that it works offline.
 
 | Android | iOS |
 |---|---|
-| ✅ (minSdk 21) | ✅ (iOS 15.0, arm64 devices and Apple Silicon simulators) |
+| minSdk 21 | iOS 15.0, arm64 devices and Apple Silicon simulators (no Intel simulator) |
 
-## How it works
+## What the user sees
 
-The Organic Maps map surface is embedded in your widget tree via a platform
-view, while all navigation UI (instruction banner, lane hints, ETA bar,
-download and preview screens) is drawn in Flutter and fed by native event
-streams. The engine — rendering, routing, and map management — is the same
-C++ core that powers the Organic Maps app, consumed as a prebuilt AAR on
-Android (`io.github.fred-apina:organicmaps-sdk`) and as a prebuilt XCFramework
-(`OfflineNavEngine`) on iOS. Both are built from the same engine fork.
+<p align="center">
+  <img src="doc/images/navigation.gif" alt="A simulated drive with turn-by-turn instructions" width="260">
+  &nbsp;
+  <img src="doc/images/ios-preview.png" alt="Route preview on iOS" width="260">
+  &nbsp;
+  <img src="doc/images/ios-guidance.png" alt="Turn-by-turn guidance on iOS" width="260">
+</p>
 
-## What gets downloaded
+1. **Download.** If the maps are missing, a progress sheet names the map piece and its size.
+2. **Preview.** The route on the map with distance and time.
+3. **Guidance.** Next turn and its distance, lane hints, voice, and the remaining time and distance.
+4. **Result.** The page closes and gives you a `NavigationResult`.
 
-By default (`MapPolicy.autoDownloadCountry`) the page downloads what the route
-needs, and nothing else:
+## Recipes
 
-* the **map area** each end of the route is in. Organic Maps splits some large
-  countries into regions, so a trip inside one region does not need the country:
-  Tanzania is seven regions (Northern 105 MB, Coastal 123 MB, Lake 175 MB, ...),
-  against 585 MB for the whole country in older map data. Most other countries
-  are still a single file (Kenya 296 MB, Uganda 339 MB). A route that runs into
-  another area makes the page download that one too and carry on.
-* the **base world map**, 72 MB, once. It draws the world around the areas.
-
-(The policy is called `autoDownloadCountry` for compatibility; it downloads
-areas.) Measured on an emulator: Arusha to Moshi downloaded 177 MB (base map and
-Northern), then Arusha to Dar es Salaam added only Coastal, 123 MB.
-
-**Show the size first.** `NavOptions(askBeforeDownload: true)` makes the page
-list the areas and their sizes and wait for a "Download" before it fetches
-anything; Cancel closes the page with `NavigationOutcome.cancelledByUser`. It
-asks again if the route turns out to need another area.
-
-**Your own screen**, or downloading ahead of time (the Wi-Fi at the hotel, before
-the trip):
+### Handle the result
 
 ```dart
-// What would this trip download? Nothing is downloaded by asking.
-final plan = await OfflineNavigation.planDownload(start: arusha, destination: moshi);
-print('${plan.areas.map((a) => '${a.name} ${formatMapSize(a.sizeBytes)}')}, '
-    'base map ${formatMapSize(plan.baseMapsBytes)}, total ${formatMapSize(plan.totalBytes)}');
+switch (result?.outcome) {
+  case NavigationOutcome.arrived:
+    showArrivedMessage();
+  case NavigationOutcome.cancelledByUser:
+    break;
+  case NavigationOutcome.failed:
+    // result.failure: mapsMissing | downloadFailed | noRoute | engineError | other
+    showError(result!.message);
+  case null:
+    break;
+}
+```
 
-// Which area is this point in? "Download Northern Tanzania" next to a park:
-final area = await OfflineNavigation.mapAreaAt(-3.3869, 36.6830);
+### Walk or cycle, no voice
+
+```dart
+OfflineNavigationPage(
+  start: start,
+  destination: destination,
+  travelMode: TravelMode.walk, // drive (default), walk, cycle
+  options: const NavOptions(voiceGuidance: false),
+)
+```
+
+### Ask before downloading
+
+```dart
+options: const NavOptions(askBeforeDownload: true)
+```
+
+The page lists the map pieces and their sizes and waits for a "Download". Cancel closes it
+with `NavigationOutcome.cancelledByUser`. It asks again if the route needs another piece.
+
+### Download on Wi-Fi, before the trip
+
+```dart
+// What would this trip download? Asking downloads nothing.
+final plan = await OfflineNavigation.planDownload(start: start, destination: destination);
+print('${formatMapSize(plan.totalBytes)} to download');
+
+// Which map piece (the API calls it a map area) is this point in? Download it:
+final area = await OfflineNavigation.mapAreaAt(47.3779, 8.5403);
 if (area != null && !area.isDownloaded) {
   await OfflineNavigation.downloadMapArea(
     area.id,
     onProgress: (p) => print('${((p.fraction ?? 0) * 100).round()} %'),
-    cancelToken: token, // optional
   );
 }
-await OfflineNavigation.ensureBaseMaps(); // the 72 MB base map, if you want it
+await OfflineNavigation.ensureBaseMaps(); // the 72 MB base map, if you want it now
 ```
 
-Then open the page with `MapPolicy.installedOnly` for a guarantee that it never
-uses the network. Do not run these while an `OfflineNavigationPage` is
-downloading: they share the engine's one download-progress stream.
+Do not run these while an `OfflineNavigationPage` is downloading: they share the engine's
+one download-progress stream.
 
-## Region maps: navigation where there is no internet
-
-By default the page downloads the map areas a route needs (see above; up to a
-few hundred MB for a large country). For places with poor or no connectivity
-you can prepare a much smaller map of just the place you need — a national park,
-a city, a campus — **ahead of time**, and navigate there with no network at all.
+### Never use the network
 
 ```dart
-// 1. Before the trip, with internet. Resumes if interrupted.
-await OfflineNavigation.installRegionMap(
-  RegionMapSource(
-    id: 'serengeti',
-    url: Uri.parse('https://maps.example.com/serengeti.mwm'),
-    sha256: '539469244b52c0c8ac42852de30c7f1ce2956a328471ad2e8822a5b1fd3139dc',
-    sizeBytes: 2149600,
-  ),
-  onProgress: (p) => setState(() => progress = p.fraction),
-);
-
-// 2. In the area, with no internet.
-final result = await Navigator.push<NavigationResult>(
-  context,
-  MaterialPageRoute(
-    builder: (_) => OfflineNavigationPage(
-      start: here,
-      destination: camp,
-      options: const NavOptions(mapPolicy: MapPolicy.installedOnly),
-    ),
-  ),
-);
-if (result?.failure == NavigationFailure.mapsMissing) {
-  // The installed maps do not cover this route: offer to download one.
-}
+options: const NavOptions(mapPolicy: MapPolicy.installedOnly)
 ```
 
-* **The map is used immediately.** Installing registers the file with the running
-  engine; no app restart is needed, and it is found again on every later start.
-* **`MapPolicy.installedOnly`** guarantees the page never uses the network. If
-  something the route needs is missing, the page closes at once with
-  `NavigationFailure.mapsMissing` and the ids in `NavigationResult.missingMaps`,
-  so your app decides what to offer. The default,
-  `MapPolicy.autoDownloadCountry`, behaves as in 0.1.x.
-* **No base world map needed (0.2.1).** With `installedOnly` the page neither
-  requires nor downloads the base world map (`World.mwm` and `WorldCoasts.mwm`,
-  72 MB together). The map is drawn from the region you installed and is blank
-  outside it, so use this for navigation that stays inside the region. To draw
-  the world around it as well, call `OfflineNavigation.ensureBaseMaps()` once
-  while online.
-* **Your own downloader?** Hand the finished file to
-  `OfflineNavigation.installRegionMapFromFile(id, path, sha256: ..., moveFile: true)`.
-* **Manage maps** with `listRegionMaps()`, `isRegionMapInstalled(id)` and
-  `removeRegionMap(id)`. Replace a map with `installRegionMap(..., replace: true)`.
-* **Errors** are `MapInstallException`s with a `MapInstallError` (`checksumMismatch`,
-  `notEnoughSpace`, `downloadFailed`, `unsupportedFormat`, ...). A failed or
-  cancelled download keeps its partial file and the next attempt resumes it.
+The page routes only with maps already on the device. If one is missing it closes at once
+with `NavigationFailure.mapsMissing`, and your app decides what to offer. Pair it with
+[region maps](doc/region-maps.md) for places with no coverage at all.
 
-**Both the start and the destination must lie inside installed maps.** A route
-from outside the region (for example from the town before the park gate) needs a
-map that covers that part as well — draw the boundary generously, along the
-access roads, or install an additional region map.
+## What gets downloaded
 
-### Building a region map
+Map data is downloaded once and kept on the device. By default
+(`MapPolicy.autoDownloadCountry`) the page downloads only what the trip needs:
 
-`tool/make_region_map.sh` turns a GeoJSON boundary and an OpenStreetMap extract
-into the `.mwm` file plus its size and SHA-256:
+1. **The map piece for the start and the one for the destination.** The world's maps
+   come in downloadable pieces. A small country is one piece. A big country is split into
+   several (for example a northern and a southern part), so a trip inside one part does not
+   need the whole country. Pieces range from about 20 MB to a few hundred MB.
+2. **The base world map** (72 MB), once. It draws the world around those pieces.
+
+A trip that stays inside one piece downloads one piece. A trip that crosses into another
+piece downloads that one too and carries on. Pieces you already have are never downloaded
+again. (In the API they are called map areas.)
+
+For example, Zürich HB to ETH Zürich downloaded the 72 MB base map and one 59 MB piece. A
+later trip inside that piece needs nothing new.
+
+Want to show the size first, or download ahead of time? See the recipes above.
+
+## Options at a glance
+
+`NavOptions`:
+
+| Option | Default | What it does |
+|---|---|---|
+| `voiceGuidance` | `true` | Speaks the turns with the device's text to speech. |
+| `simulateRoute` | `false` | Drives the route automatically, with no GPS. For demos and tests. |
+| `mapPolicy` | `autoDownloadCountry` | `installedOnly` never uses the network. |
+| `askBeforeDownload` | `false` | Shows the map pieces and their sizes and waits for a "Download". |
+
+### Start the engine early
+
+The engine starts on its own when the page opens. To make the first open faster, warm it
+up earlier, for example when your app starts:
+
+```dart
+await OfflineNavigation.initialize(); // safe to call more than once
+```
+
+### Just show the map
+
+`OfflineMapView` is the bare offline map widget, without the navigation screens. Call
+`OfflineNavigation.initialize()` first and let it finish before you build the widget.
+
+The [API reference](https://pub.dev/documentation/offline_navigation/latest/) lists everything.
+
+## Good to know
+
+* **You choose the start point.** `start` is a position you pass in. To navigate from where
+  the user is now, read their location with a location package and pass it as `start`.
+* **The page takes the whole screen** and returns a `NavigationResult` when it closes.
+* **The built-in screens are in English** for now (download, preview, buttons).
+
+## Troubleshooting
+
+* **Android build fails about desugaring.** Add the two blocks from step 2.
+* **iOS never asks for location.** `NSLocationWhenInUseUsageDescription` is missing from
+  `Info.plist`.
+* **iOS stops guiding when the screen locks.** Add the `location` background mode. A
+  simulated drive is not kept alive in the background, because it has no location
+  updates: it carries on from where it was when the app returns.
+* **No Intel iOS simulator.** The engine is arm64 only: use a device or an Apple Silicon simulator.
+* **The page closes with `mapsMissing`.** With `installedOnly`, the installed maps do not
+  cover the route. Both the start and the destination must be inside installed maps.
+* **A download failed.** The page shows the error with a retry. Check the connection and try again.
+
+## Try the example
+
+The [`example`](example) app lets you pick a route, a travel mode and the options, and
+install a region map.
 
 ```sh
-tool/make_region_map.sh --id serengeti --boundary serengeti.geojson \
-    --osm tanzania-latest.osm.pbf --engine ~/src/organicmaps \
-    --build ~/src/omim-build-release --out ./maps
+cd example && flutter run
 ```
 
-It needs `osmium-tool`, Python 3.10+, and the generator tools built from the
-Organic Maps source **of the same release as the engine in this plugin** — an
-engine rejects maps from a newer generator (`MapInstallError.unsupportedFormat`).
-`OfflineNavigation.engineDataVersion` reports the engine's data version. The
-script's header explains how to build the tools. A national park of 13,000 km²
-becomes about 2 MB.
+## How it works
 
-Host the file anywhere that serves HTTPS, ideally with `Range` support so large
-downloads can resume. Keep `id`, `sizeBytes` and `sha256` in your own catalogue
-(for example next to the content your app downloads for that place).
+The map surface is embedded in your widget tree as a platform view. All navigation UI
+(instruction banner, lane hints, ETA bar, download and preview screens) is drawn in
+Flutter and fed by native event streams. The engine, with rendering, routing and map
+management, is the same C++ core as the Organic Maps app. It is a prebuilt AAR on Android
+(`io.github.fred-apina:organicmaps-sdk`) and a prebuilt XCFramework (`OfflineNavEngine`)
+on iOS, both built from the same engine fork.
 
-## License & attribution
+## Feedback and contributing
+
+Bugs and ideas are welcome in the
+[issue tracker](https://github.com/fred-apina/offline_navigation/issues). If something in this
+guide was unclear, tell us: the goal is that you are navigating in minutes.
+
+## License and attribution
 
 Apache-2.0, built on the [Organic Maps](https://github.com/organicmaps/organicmaps)
 engine (Apache-2.0). Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright)

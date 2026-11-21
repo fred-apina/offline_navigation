@@ -1,8 +1,18 @@
 name: offline_navigation
-description: "Drop-in offline turn-by-turn navigation page for Flutter, powered by the Organic Maps engine. Downloads the required country map automatically and navigates fully offline."
-version: 0.3.1
+description: "Drop-in offline turn-by-turn navigation for Flutter on Android and iOS: route preview, voice guidance and map downloads, powered by Organic Maps."
+version: 0.3.2
 repository: https://github.com/fred-apina/offline_navigation
 issue_tracker: https://github.com/fred-apina/offline_navigation/issues
+
+screenshots:
+  - description: 'A simulated drive with turn-by-turn instructions.'
+    path: doc/images/navigation.gif
+  - description: 'Live guidance on Android: next turn, remaining time and distance.'
+    path: doc/images/android-guidance.png
+  - description: 'Route preview on iOS.'
+    path: doc/images/ios-preview.png
+  - description: 'Turn-by-turn guidance on iOS.'
+    path: doc/images/ios-guidance.png
 
 topics:
   - navigation
