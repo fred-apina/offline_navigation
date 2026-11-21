@@ -1,3 +1,14 @@
+## 0.3.2
+
+Documentation only. No code changes: the Android library stays at 0.3.1 and the iOS engine is unchanged.
+
+* **New README.** A quick start with the Android and iOS setup, real and simulated navigation, recipes
+  (handle the result, walk or cycle, ask before downloading, download ahead of time, never use the network,
+  start the engine early, show just the map), what gets downloaded, an options table, "good to know" notes
+  and troubleshooting. It has screenshots and a demo GIF.
+* Region maps moved to `doc/region-maps.md`.
+* Package description and pub.dev screenshots updated.
+
 ## 0.3.1 (unreleased)
 
 * **Downloads fixed.** In 0.3.0 every map download started by trying two mirrors
